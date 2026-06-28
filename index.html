@@ -1,0 +1,2466 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0">
+<title>Broomfield Park SC — Coach Dashboard v2.2</title>
+<style>
+/* ── CSS Variables — matches swim-dash colour scheme ──────── */
+:root {
+  --bg:           #f0f4f8;
+  --surface:      #ffffff;
+  --surface2:     #e8eef5;
+  --surface3:     #d6e2ef;
+  --accent:       #1a56c4;
+  --accent2:      #0ea5d4;
+  --gold:         #d97706;
+  --green:        #059669;
+  --red:          #dc2626;
+  --text:         #0f172a;
+  --text2:        #334155;
+  --text3:        #64748b;
+  --border:       #cbd5e1;
+  --tab-active:   #4f86d8;
+  --header-start: #1a56c4;
+  --header-end:   #0ea5d4;
+}
+body.dark {
+  --bg:           #0a0e1a;
+  --surface:      #111827;
+  --surface2:     #1a2236;
+  --surface3:     #243049;
+  --accent:       #3b82f6;
+  --accent2:      #06b6d4;
+  --gold:         #f59e0b;
+  --green:        #10b981;
+  --red:          #ef4444;
+  --text:         #f1f5f9;
+  --text2:        #94a3b8;
+  --text3:        #64748b;
+  --border:       #1e293b;
+  --tab-active:   #3b82f6;
+  --header-start: #0f172a;
+  --header-end:   #1e3a5f;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; font-size: 14px; }
+
+/* ── HEADER ──────────────────────────────────────────────── */
+.header {
+  background: linear-gradient(135deg, var(--header-start) 0%, var(--header-start) 60%, var(--header-end) 100%);
+  padding: 14px 28px;
+  display: flex; align-items: center; gap: 16px;
+  position: sticky; top: 0; z-index: 100;
+  box-shadow: 0 2px 16px rgba(26,86,196,0.25);
+}
+.header-logo { height: 48px; width: 48px; border-radius: 50%; background: white; padding: 3px; object-fit: contain; flex-shrink: 0; }
+.header-title h1 { font-size: 1.2rem; font-weight: 700; color: #ffffff; }
+.header-title p  { font-size: 0.75rem; color: rgba(255,255,255,0.7); margin-top: 2px; }
+
+/* ── TABS ────────────────────────────────────────────────── */
+.tabs {
+  display: flex; gap: 4px;
+  background: var(--surface2);
+  border-radius: 12px; padding: 4px;
+  margin: 20px auto 0;
+  border: 1px solid var(--border);
+  width: fit-content; max-width: 100%;
+}
+.tab-btn {
+  flex: 1; padding: 10px 14px;
+  background: var(--surface2); color: var(--text2);
+  font-size: 0.83rem; font-weight: 500;
+  border-radius: 8px; cursor: pointer;
+  transition: all 0.2s; white-space: nowrap; text-align: center;
+  border: 1px solid var(--border); font-family: inherit;
+}
+.tab-btn:hover { background: var(--surface3); color: var(--text); }
+.tab-btn.active { background: var(--tab-active); color: white; border-color: var(--tab-active); box-shadow: 0 2px 8px rgba(26,86,196,0.25); }
+
+/* ── CONTAINER ───────────────────────────────────────────── */
+.container { max-width: 1400px; margin: 0 auto; padding: 20px 28px 80px; }
+.panel { display: none; }
+.panel.active { display: block; }
+
+/* ── INFO BANNER (age group note) ────────────────────────── */
+.info-banner {
+  background: rgba(26,86,196,0.07);
+  border: 1px solid rgba(26,86,196,0.2);
+  border-left: 4px solid var(--accent);
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin-bottom: 16px;
+  font-size: 0.76rem;
+  color: var(--text2);
+  line-height: 1.5;
+}
+body.dark .info-banner { background: rgba(59,130,246,0.08); border-color: rgba(59,130,246,0.25); border-left-color: var(--accent); }
+
+/* ── STAT CARDS ──────────────────────────────────────────── */
+.stat-row { display: grid; grid-template-columns: repeat(3,1fr); gap: 14px; margin-bottom: 18px; }
+.stat-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 14px; padding: 18px 20px;
+  cursor: pointer; transition: transform 0.15s, box-shadow 0.15s;
+  position: relative; overflow: hidden;
+  text-align: center;
+}
+.stat-card::before {
+  content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px;
+  border-radius: 14px 14px 0 0;
+}
+.stat-card.qualified::before  { background: var(--green); }
+.stat-card.consideration::before { background: var(--gold); }
+.stat-card.outside::before    { background: var(--red); }
+.stat-card:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(0,0,0,0.09); }
+.stat-card.active-filter { outline: 2px solid var(--accent); outline-offset: 1px; }
+.stat-card.qualified.active-filter  { outline-color: var(--green); }
+.stat-card.consideration.active-filter { outline-color: var(--gold); }
+.stat-card.outside.active-filter    { outline-color: var(--red); }
+
+.stat-count { font-size: 2.4rem; font-weight: 800; line-height: 1; margin-bottom: 4px; font-variant-numeric: tabular-nums; }
+.stat-card.qualified .stat-count     { color: var(--green); }
+.stat-card.consideration .stat-count { color: var(--gold); }
+.stat-card.outside .stat-count       { color: var(--red); }
+.stat-label { font-size: 0.70rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text3); font-weight: 600; margin-bottom: 6px; }
+.stat-names { font-size: 0.73rem; color: var(--text3); line-height: 1.5; margin-top: 4px; }
+.stat-icon  { position: absolute; top: 14px; right: 14px; font-size: 1.3rem; opacity: 0.12; }
+
+/* ── FILTER BAR ──────────────────────────────────────────── */
+.filter-bar {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 12px; padding: 14px 16px; margin-bottom: 16px;
+  display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end;
+}
+.fg { display: flex; flex-direction: column; gap: 3px; }
+.fl { font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.07em; color: var(--text3); font-weight: 600; }
+select {
+  background: var(--surface2); border: 1px solid var(--border);
+  color: var(--text); padding: 7px 10px; border-radius: 8px;
+  font-size: 0.80rem; font-family: inherit; cursor: pointer; outline: none;
+  -webkit-appearance: none; appearance: none; min-width: 128px;
+  transition: border-color 0.15s;
+}
+select:focus { border-color: var(--accent); }
+.fbtn {
+  background: var(--surface2); border: 1px solid var(--border);
+  color: var(--text2); padding: 7px 14px; border-radius: 8px;
+  font-size: 0.80rem; font-family: inherit; font-weight: 500; cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+.fbtn:hover { border-color: var(--accent); color: var(--accent); }
+.fbtn.reset { font-weight: 700; }
+
+/* No PB toggle */
+.nopb-toggle {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 0.78rem; color: var(--text2); cursor: pointer;
+  padding: 7px 0; white-space: nowrap;
+}
+.nopb-toggle input[type=checkbox] { width: 14px; height: 14px; cursor: pointer; accent-color: var(--accent); }
+
+/* ── SECTION HEADER ──────────────────────────────────────── */
+.section-header {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 12px;
+}
+.section-title {
+  font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.09em;
+  color: var(--text3); font-weight: 700;
+  display: flex; align-items: center; gap: 8px;
+}
+.section-title::after { content: ''; display: inline-block; width: 80px; height: 1px; background: var(--border); }
+
+/* ── SWIMMER CARDS ───────────────────────────────────────── */
+.swimmers-list { display: flex; flex-direction: column; gap: 12px; }
+.swimmer-card  { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
+.swimmer-header {
+  padding: 13px 16px; display: flex; align-items: center; gap: 12px;
+  background: var(--surface2); border-bottom: 1px solid var(--border);
+  cursor: pointer; user-select: none; transition: background 0.12s;
+}
+.swimmer-header:hover { background: var(--surface3); }
+.swimmer-avatar {
+  width: 36px; height: 36px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 700; font-size: 0.75rem; flex-shrink: 0;
+}
+.swimmer-name { font-weight: 600; font-size: 0.90rem; color: var(--text); }
+.swimmer-badges { margin-left: auto; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+.chevron { font-size: 0.72rem; color: var(--text3); transition: transform 0.2s; margin-left: 2px; flex-shrink: 0; }
+.swimmer-card.collapsed .chevron { transform: rotate(-90deg); }
+.swimmer-card.collapsed .swimmer-table-wrap { display: none; }
+
+/* ── BADGES ──────────────────────────────────────────────── */
+.badge {
+  display: inline-block; padding: 2px 8px; border-radius: 20px;
+  font-size: 0.65rem; font-weight: 700; letter-spacing: 0.02em; white-space: nowrap;
+}
+.badge.qualified     { background: rgba(5,150,105,0.12);  color: var(--green); }
+.badge.consideration { background: rgba(217,119,6,0.12);  color: var(--gold); }
+.badge.outside       { background: rgba(220,38,38,0.10);  color: var(--red); }
+.badge.nopb          { background: var(--surface3);        color: var(--text3); }
+.badge.S             { background: rgba(26,86,196,0.10);   color: var(--accent); }
+.badge.L             { background: rgba(14,165,212,0.12);  color: var(--accent2); }
+
+/* Responsive text labels */
+.col-abbr { display: none; }
+.col-full  { display: inline; }
+
+/* ── SWIMMER TABLE ───────────────────────────────────────── */
+.swimmer-table-wrap { overflow-x: auto; }
+table.swimmer-tbl   { width: 100%; border-collapse: collapse; }
+table.swimmer-tbl thead tr { background: var(--surface2); }
+table.swimmer-tbl th {
+  padding: 8px 13px; text-align: left;
+  font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--text3); font-weight: 600; white-space: nowrap;
+  border-bottom: 1px solid var(--border);
+}
+table.swimmer-tbl td {
+  padding: 9px 13px; border-top: 1px solid var(--border);
+  font-size: 0.80rem; color: var(--text2); white-space: nowrap; font-weight: 400;
+}
+table.swimmer-tbl tr:hover td { background: var(--surface2); }
+/* Mono numeric cells — PB time, QT, CT, gap values */
+.tnum { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--text); }
+.tnum-gold { font-variant-numeric: tabular-nums; font-weight: 700; color: var(--gold); }
+.dpos { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--green); }
+.dneg { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--red); }
+/* Left border by status */
+.row-qualified     td:first-child { border-left: 3px solid var(--green); }
+.row-consideration td:first-child { border-left: 3px solid var(--gold); }
+.row-outside       td:first-child { border-left: 3px solid var(--red); }
+.row-nopb          td:first-child { border-left: 3px solid var(--border); }
+
+/* ── PROGRESS BAR ────────────────────────────────────────── */
+.prog-wrap {
+  position: relative; height: 5px; background: var(--surface3);
+  border-radius: 3px; border: 1px solid var(--border);
+  overflow: visible; margin-top: 12px; margin-bottom: 2px; min-width: 96px;
+}
+.prog-fill { position: absolute; left: 0; top: 0; height: 100%; border-radius: 3px; min-width: 2px; }
+.prog-fill.qualified     { background: var(--green); }
+.prog-fill.consideration { background: var(--gold); }
+.prog-fill.outside       { background: var(--red); }
+.prog-fill.nopb          { background: var(--border); }
+.prog-marker { position: absolute; top: -3px; width: 2px; height: 11px; border-radius: 1px; }
+.prog-marker.ct { background: var(--gold); }
+.prog-marker.qt { background: var(--green); }
+
+/* ── EMPTY STATE ─────────────────────────────────────────── */
+.empty { text-align: center; padding: 48px 20px; color: var(--text3); font-size: 0.85rem; }
+.empty-icon { font-size: 2.4rem; margin-bottom: 10px; }
+
+/* ── MODALS ──────────────────────────────────────────────── */
+.modal-overlay {
+  display: none; position: fixed; inset: 0;
+  background: rgba(0,0,0,0.65); z-index: 999;
+  align-items: center; justify-content: center; padding: 16px;
+}
+.modal-overlay.open { display: flex; }
+.modal-box {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 16px; width: 520px; max-width: 100%;
+  max-height: 90vh; overflow-y: auto; padding: 24px;
+}
+.modal-title {
+  font-size: 1rem; font-weight: 700; margin-bottom: 18px;
+  display: flex; align-items: center; justify-content: space-between; color: var(--text);
+}
+.modal-close { background: none; border: none; font-size: 1.2rem; cursor: pointer; color: var(--text3); padding: 2px 6px; }
+.form-row { margin-bottom: 14px; }
+.form-label { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.07em; color: var(--text3); font-weight: 600; margin-bottom: 5px; display: block; }
+.form-input {
+  width: 100%; background: var(--surface2); border: 1px solid var(--border);
+  color: var(--text); padding: 8px 10px; border-radius: 8px;
+  font-size: 0.83rem; font-family: inherit; outline: none; transition: border-color 0.15s;
+}
+.form-input:focus { border-color: var(--accent); }
+.form-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.btn { padding: 8px 18px; border-radius: 8px; font-size: 0.83rem; font-family: inherit; cursor: pointer; font-weight: 600; transition: opacity 0.15s; border: none; }
+.btn.primary { background: var(--accent); color: white; }
+.btn.sec { background: var(--surface2); border: 1px solid var(--border); color: var(--text2); }
+.btn:hover { opacity: 0.88; }
+.pb-event-row { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; position: relative; }
+.pb-event-row .remove-evt { position: absolute; top: 8px; right: 8px; background: none; border: none; color: var(--red); cursor: pointer; font-size: 1rem; }
+.pb-top-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+
+/* ── SWIMMER ACTIONS (edit / delete on card header) ─────── */
+.swimmer-actions { display: flex; gap: 2px; align-items: center; margin-left: 6px; }
+.sw-action-btn {
+  background: none; border: none; cursor: pointer;
+  font-size: 0.85rem; opacity: 0.45; padding: 4px 6px;
+  border-radius: 6px; transition: opacity 0.15s, background 0.15s;
+  line-height: 1;
+}
+.sw-action-btn:hover { opacity: 1; background: var(--surface3); }
+
+/* ── NAME SEARCH INPUT ───────────────────────────────────────── */
+.name-search {
+  background: var(--surface2); border: 1px solid var(--border);
+  color: var(--text); padding: 7px 10px; border-radius: 8px;
+  font-size: 0.80rem; font-family: inherit; outline: none;
+  min-width: 140px; width: 100%; transition: border-color 0.15s;
+}
+.name-search:focus { border-color: var(--accent); }
+
+/* ── SQUAD BADGE ─────────────────────────────────────────────── */
+.squad-badge {
+  display: inline-block; padding: 1px 7px; border-radius: 20px;
+  font-size: 0.62rem; font-weight: 600;
+  background: rgba(26,86,196,0.10); color: var(--accent);
+}
+.squad-badge.squad-development { background:rgba(8,145,178,0.13);  color:#0891b2; }
+.squad-badge.squad-junior      { background:rgba(79,134,216,0.13); color:#4f86d8; }
+.squad-badge.squad-senior      { background:rgba(124,58,237,0.13); color:#7c3aed; }
+.squad-badge.squad-active      { background:rgba(5,150,105,0.13);  color:#059669; }
+.squad-badge.squad-masters     { background:rgba(217,119,6,0.13);  color:#d97706; }
+.squad-badge.squad-former-swimmer { background:var(--surface3);       color:var(--text3); }
+
+/* ── SWIMMER META (flex-wrap so age group can push to new row) ── */
+.swimmer-meta {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px;
+  font-size: 0.71rem; color: var(--text3); margin-top: 2px;
+}
+.age-group-meta { white-space: nowrap; }
+.swimmer-name-line { display: flex; align-items: center; gap: 5px; }
+.swimmer-name-text { font-weight: 600; font-size: clamp(0.72rem, 3.5vw, 0.90rem); color: var(--text); overflow-wrap: break-word; word-break: break-word; min-width: 0; }
+.swimmer-pills { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+.gender-pill-mobile {
+  display: none; /* hidden on desktop; shown on mobile via media query */
+  padding: 2px 8px; border-radius: 20px;
+  font-size: 0.75rem; font-weight: 900; line-height: 1.6;
+}
+.gender-pill-boys  { background: rgba(26,86,196,0.13); color: #1a56c4; }
+.gender-pill-girls { background: rgba(219,39,119,0.13); color: #db2777; }
+
+/* ── FILTER TOGGLES ROW (below filter bar, desktop single row) ── */
+.filter-toggles {
+  display: flex; gap: 20px; align-items: center; flex-wrap: wrap;
+  padding: 4px 2px; margin-bottom: 14px; row-gap: 8px;
+}
+.filter-toggles .nopb-toggle { font-size: 0.78rem; color: var(--text2); display: flex; align-items: center; gap: 6px; }
+
+/* ── COMPETITION METADATA BAR (QT editor) ────────────────────── */
+.comp-meta-bar {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 12px; padding: 14px 18px; margin-bottom: 16px;
+  display: flex; align-items: center; justify-content: space-between; gap: 14px;
+}
+.comp-meta-title { font-size: 1rem; font-weight: 700; color: var(--text); }
+.comp-meta-dates { font-size: 0.78rem; color: var(--text3); margin-top: 3px; }
+.comp-meta-edit-form {
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 12px; padding: 16px; margin-bottom: 16px;
+}
+
+/* ── QT EDITOR TABLE ─────────────────────────────────────────── */
+.qt-inline-input {
+  width: 80px; background: var(--surface2); border: 1px solid var(--border);
+  color: var(--text); padding: 4px 7px; border-radius: 6px;
+  font-size: 0.78rem; font-family: inherit; text-align: right; outline: none;
+  transition: border-color 0.15s, background 0.15s;
+}
+.qt-inline-input:focus  { border-color: var(--accent); background: var(--surface); }
+.qt-inline-input:hover  { border-color: var(--text3); }
+.qt-inline-input.inverted { border-color: var(--gold); background: rgba(217,119,6,0.07); }
+
+/* ── SYNC STATUS ─────────────────────────────────────────────── */
+.sync-success { background:rgba(5,150,105,0.08); border:1px solid rgba(5,150,105,0.2); color:var(--green); }
+.sync-error   { background:rgba(220,38,38,0.08); border:1px solid rgba(220,38,38,0.2); color:var(--red); }
+.sync-info    { background:rgba(26,86,196,0.07); border:1px solid rgba(26,86,196,0.2); color:var(--text2); }
+.source-badge-sheet { background:rgba(5,150,105,0.10); color:var(--green); }
+.source-badge-local { background:rgba(100,116,139,0.10); color:var(--text3); }
+
+/* ── NOTE ────────────────────────────────────────────────── */
+.note { font-size: 0.72rem; color: var(--text3); margin-top: 10px; }
+
+/* ── FAB SPEED DIAL ──────────────────────────────────────── */
+.fab-backdrop { display: none; position: fixed; inset: 0; z-index: 198; background: rgba(0,0,0,0.3); }
+.fab-backdrop.open { display: block; }
+.fab-dial { position: fixed; bottom: 24px; right: 24px; z-index: 199; display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.fab-parent {
+  width: 56px; height: 56px; border-radius: 50%;
+  background: var(--accent); color: white; border: none;
+  font-size: 1.5rem; cursor: pointer; padding: 0; line-height: 1;
+  box-shadow: 0 4px 16px rgba(26,86,196,0.4);
+  display: flex; align-items: center; justify-content: center;
+  transition: transform 0.25s, background 0.2s; z-index: 201;
+}
+.fab-parent:hover { transform: scale(1.08); }
+.fab-parent.open  { background: var(--text2); transform: rotate(45deg); }
+.fab-children { display: flex; flex-direction: column; align-items: center; gap: 10px; pointer-events: none; }
+.fab-child-row { opacity: 0; transform: translateY(12px); transition: opacity 0.18s ease, transform 0.18s ease; }
+.fab-child-row:nth-child(1) { transition-delay: 0.00s; }
+.fab-child-row:nth-child(2) { transition-delay: 0.05s; }
+.fab-child-row:nth-child(3) { transition-delay: 0.10s; }
+.fab-child-row:nth-child(4) { transition-delay: 0.15s; }
+.fab-child-row:nth-child(5) { transition-delay: 0.20s; }
+.fab-children.open { pointer-events: auto; }
+.fab-children.open .fab-child-row { opacity: 1; transform: translateY(0); }
+.fab-child {
+  width: 46px; height: 46px; border-radius: 50%;
+  background: var(--surface); color: var(--text2);
+  border: 1px solid var(--border); font-size: 1.15rem; cursor: pointer; padding: 0; line-height: 1;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.13);
+  display: flex; align-items: center; justify-content: center;
+  transition: transform 0.18s, color 0.18s;
+}
+.fab-child:hover { transform: scale(1.1); color: var(--accent); }
+
+/* ── MOBILE ──────────────────────────────────────────────── */
+@media (max-width: 500px) {
+  /* Header */
+  .header { padding: 12px 16px; gap: 10px; }
+  .header-logo { height: 40px; width: 40px; }
+  .header-title h1 { font-size: 1rem; }
+
+  /* Tabs: 2×1 grid (2 tabs, each 50%) */
+  .tabs {
+    margin: 12px 12px 0;
+    flex-wrap: wrap;
+    width: calc(100% - 24px);
+    max-width: 100%;
+    border-radius: 10px;
+  }
+  .tab-btn { flex: 1 1 45%; font-size: 0.76rem; padding: 9px 6px; }
+
+  /* Container */
+  .container { padding: 14px 12px 80px; }
+
+  /* Stat cards — all 3 in 1 row, compact, no names */
+  .stat-row { gap: 6px; }
+  .stat-card { padding: 10px 8px; text-align: center; }
+  .stat-count { font-size: 1.6rem; }
+  .stat-label { font-size: 0.58rem; letter-spacing: 0.04em; margin-bottom: 2px; }
+  .stat-names { display: none; }
+  .stat-icon  { display: none; }
+
+  /* Filter bar — 2×3 grid */
+  .filter-bar {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    padding: 10px;
+    background: transparent;
+    border: none;
+    border-radius: 0;
+  }
+  .fg { width: 100%; }
+  select { min-width: 0; width: 100%; height: 36px; padding: 0 8px; font-size: 0.76rem; }
+  .fl { font-size: 0.58rem; }
+  /* Reset button spans full width */
+  .fg.reset-fg { grid-column: 1 / span 2; }
+  .fbtn.reset { width: 100%; text-align: center; height: 36px; font-size: 0.8rem; }
+  /* No PB toggle spans full width, appears below reset */
+  .fg.nopb-fg { grid-column: 1 / span 2; }
+
+  /* Info banner */
+  .info-banner { font-size: 0.70rem; }
+
+  /* Swimmer header */
+  .swimmer-header { padding: 10px 12px; gap: 8px; }
+  .swimmer-avatar { width: 30px; height: 30px; font-size: 0.68rem; }
+    .swimmer-meta { flex-direction: column; align-items: flex-start; gap: 2px; }
+  .age-group-meta { white-space: nowrap; }
+  .swimmer-badges { gap: 3px; flex-direction: column; align-items: flex-end; }
+  .badge { font-size: 0.58rem; padding: 2px 5px; }
+
+  /* Table */
+  table.swimmer-tbl th { font-size: 0.60rem; padding: 6px 8px; }
+  table.swimmer-tbl td { font-size: 0.70rem; padding: 7px 8px; }
+  .col-abbr { display: inline !important; }
+  .col-full  { display: none !important; }
+  .gender-pill-mobile { display: inline-block !important; }
+
+  /* FAB */
+  .fab-dial { bottom: 16px; right: 16px; }
+  /* Hide progress bar column — reduces horizontal scroll on mobile */
+  .progress-col { display: none; }
+  /* QT editor tabs — desktop only */
+  .desktop-tab { display: none; }
+  /* Name search spans full width in 2-col grid */
+  .fg.name-fg { grid-column: 1 / span 2; }
+}
+</style>
+</head>
+<body>
+
+<!-- ══ HEADER ════════════════════════════════════════════════ -->
+<div class="header">
+  <img class="header-logo" id="headerLogo" alt="Broomfield Park SC">
+  <div class="header-title">
+    <h1>Coach Dashboard</h1>
+    <p>Broomfield Park SC · County &amp; Regional QT Tracker</p>
+  </div>
+</div>
+
+<!-- ══ TAB BAR ═══════════════════════════════════════════════ -->
+<div class="tabs">
+  <button class="tab-btn active" onclick="showTab('county',this)">🎯 County QT</button>
+  <button class="tab-btn"        onclick="showTab('regional',this)">🏅 Regional QT</button>
+  <button class="tab-btn desktop-tab" onclick="showTab('county-editor',this)">📝 County QT Editor</button>
+  <button class="tab-btn desktop-tab" onclick="showTab('regional-editor',this)">📝 Regional QT Editor</button>
+</div>
+
+<!-- ══ MAIN CONTAINER ════════════════════════════════════════ -->
+<div class="container">
+
+  <!-- COUNTY TAB -->
+  <div class="panel active" id="tab-county">
+    <div class="info-banner" id="countyBanner"></div>
+    <div class="stat-row" id="countyStats"></div>
+    <div class="filter-bar" id="countyFilterBar">
+      <div class="fg">
+        <span class="fl">Gender</span>
+        <select id="cGender" onchange="renderCounty()">
+          <option value="">All</option>
+          <option value="Boys">Boys</option>
+          <option value="Girls">Girls</option>
+        </select>
+      </div>
+      <div class="fg">
+        <span class="fl">Age Group</span>
+        <select id="cAge" onchange="renderCounty()">
+          <option value="">All Ages</option>
+          <option value="10+11">10+11</option>
+          <option value="12">12</option>
+          <option value="13">13</option>
+          <option value="14">14</option>
+          <option value="15">15</option>
+          <option value="16">16</option>
+          <option value="17+">17+</option>
+        </select>
+      </div>
+      <div class="fg">
+        <span class="fl">Stroke</span>
+        <select id="cStroke" onchange="renderCounty()">
+          <option value="">All Strokes</option>
+          <option value="Free">Freestyle</option>
+          <option value="Back">Backstroke</option>
+          <option value="Breast">Breaststroke</option>
+          <option value="Fly">Butterfly</option>
+          <option value="IM">Individual Medley</option>
+        </select>
+      </div>
+      <div class="fg">
+        <span class="fl">Status</span>
+        <select id="cStatus" onchange="renderCounty()">
+          <option value="">All Statuses</option>
+          <option value="Qualified">✅ Qualified</option>
+          <option value="Consideration">🔶 Consideration</option>
+          <option value="Outside">❌ Outside</option>
+        </select>
+      </div>
+      <div class="fg">
+        <span class="fl">Course</span>
+        <select id="cCourse" onchange="renderCounty()">
+          <option value="">Both</option>
+          <option value="S">Short Course</option>
+          <option value="L">Long Course</option>
+        </select>
+      </div>
+      <div class="fg">
+        <span class="fl">Squad</span>
+        <select id="cSquad" onchange="renderCounty()">
+          <option value="">All Squads</option>
+          <option value="Development">Development</option>
+          <option value="Junior">Junior</option>
+          <option value="Senior">Senior</option>
+          <option value="Active">Active</option>
+          <option value="Masters">Masters</option>
+          <option value="Former Swimmer">Former Swimmer</option>
+          <option value="Undefined">No Squad</option>
+        </select>
+      </div>
+      <div class="fg name-fg">
+        <span class="fl">Search Swimmer</span>
+        <input type="text" id="cName" class="name-search" placeholder="Name..." oninput="renderCounty()">
+      </div>
+      <div class="fg reset-fg" style="align-self:flex-end">
+        <button class="fbtn reset" onclick="resetFilters('county')">Reset Filters</button>
+      </div>
+    </div>
+    <div class="filter-toggles" id="cNoPBFg">
+        <label class="nopb-toggle" id="cNoPBLabel">
+          <input type="checkbox" id="cShowNoPB" onchange="renderCounty()">
+          Show events without PB
+        </label>
+        <label class="nopb-toggle">
+          <input type="checkbox" id="cShowFormer" onchange="renderCounty()">
+          Show Former Swimmers
+        </label>
+    </div>
+    <div class="section-header">
+      <div class="section-title">Swimmers</div>
+      <button class="fbtn" id="countyCollapseBtn" onclick="toggleCollapseAll('county')">⊟ Collapse All</button>
+    </div>
+    <div class="swimmers-list" id="countyList"></div>
+    <div class="note" id="countyNote"></div>
+  </div>
+
+  <!-- REGIONAL TAB -->
+  <div class="panel" id="tab-regional">
+    <div class="info-banner" id="regionalBanner"></div>
+    <div class="stat-row" id="regionalStats"></div>
+    <div class="filter-bar" id="regionalFilterBar">
+      <div class="fg">
+        <span class="fl">Gender</span>
+        <select id="rGender" onchange="renderRegional()">
+          <option value="">All</option>
+          <option value="Boys">Boys</option>
+          <option value="Girls">Girls</option>
+        </select>
+      </div>
+      <div class="fg">
+        <span class="fl">Age Group</span>
+        <select id="rAge" onchange="renderRegional()">
+          <option value="">All Ages</option>
+          <option value="11/12">11/12</option>
+          <option value="13">13</option>
+          <option value="14">14</option>
+          <option value="15">15</option>
+          <option value="16">16</option>
+          <option value="17">17</option>
+          <option value="18+">18+</option>
+        </select>
+      </div>
+      <div class="fg">
+        <span class="fl">Stroke</span>
+        <select id="rStroke" onchange="renderRegional()">
+          <option value="">All Strokes</option>
+          <option value="Free">Freestyle</option>
+          <option value="Back">Backstroke</option>
+          <option value="Breast">Breaststroke</option>
+          <option value="Fly">Butterfly</option>
+          <option value="IM">Individual Medley</option>
+        </select>
+      </div>
+      <div class="fg">
+        <span class="fl">Status</span>
+        <select id="rStatus" onchange="renderRegional()">
+          <option value="">All Statuses</option>
+          <option value="Qualified">✅ Qualified</option>
+          <option value="Consideration">🔶 Consideration</option>
+          <option value="Outside">❌ Outside</option>
+        </select>
+      </div>
+      <div class="fg">
+        <span class="fl">Course</span>
+        <select id="rCourse" onchange="renderRegional()">
+          <option value="">Both</option>
+          <option value="S">Short Course</option>
+          <option value="L">Long Course</option>
+        </select>
+      </div>
+      <div class="fg">
+        <span class="fl">Squad</span>
+        <select id="rSquad" onchange="renderRegional()">
+          <option value="">All Squads</option>
+          <option value="Development">Development</option>
+          <option value="Junior">Junior</option>
+          <option value="Senior">Senior</option>
+          <option value="Active">Active</option>
+          <option value="Masters">Masters</option>
+          <option value="Former Swimmer">Former Swimmer</option>
+          <option value="Undefined">No Squad</option>
+        </select>
+      </div>
+      <div class="fg name-fg">
+        <span class="fl">Search Swimmer</span>
+        <input type="text" id="rName" class="name-search" placeholder="Name..." oninput="renderRegional()">
+      </div>
+      <div class="fg reset-fg" style="align-self:flex-end">
+        <button class="fbtn reset" onclick="resetFilters('regional')">Reset Filters</button>
+      </div>
+    </div>
+    <div class="filter-toggles" id="rNoPBFg">
+        <label class="nopb-toggle" id="rNoPBLabel">
+          <input type="checkbox" id="rShowNoPB" onchange="renderRegional()">
+          Show events without PB
+        </label>
+        <label class="nopb-toggle">
+          <input type="checkbox" id="rShowFormer" onchange="renderRegional()">
+          Show Former Swimmers
+        </label>
+    </div>
+    <div class="section-header">
+      <div class="section-title">Swimmers</div>
+      <button class="fbtn" id="regionalCollapseBtn" onclick="toggleCollapseAll('regional')">⊟ Collapse All</button>
+    </div>
+    <div class="swimmers-list" id="regionalList"></div>
+    <div class="note" id="regionalNote"></div>
+  </div>
+
+  <!-- COUNTY QT EDITOR TAB (desktop only) -->
+  <div class="panel" id="tab-county-editor">
+    <div class="comp-meta-bar">
+      <div>
+        <div class="comp-meta-title" id="countyMetaTitle">County Championships</div>
+        <div class="comp-meta-dates" id="countyMetaDates">No dates set — click Edit Details to configure</div>
+      </div>
+      <button class="fbtn" id="countyMetaBtn" onclick="toggleMetaEdit('county')">✏️ Edit Details</button>
+    </div>
+    <div class="comp-meta-edit-form" id="countyMetaEditForm" style="display:none">
+      <div class="form-grid-2" style="margin-bottom:12px">
+        <div class="fg" style="grid-column:1/span 2">
+          <label class="form-label">Competition Title</label>
+          <input type="text" id="countyMetaTitleInput" class="form-input" placeholder="e.g. Hertfordshire County Championships 2026">
+        </div>
+        <div class="fg">
+          <label class="form-label">Date From</label>
+          <input type="date" id="countyMetaFrom" class="form-input">
+        </div>
+        <div class="fg">
+          <label class="form-label">Date To</label>
+          <input type="date" id="countyMetaTo" class="form-input">
+        </div>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button class="btn sec" onclick="cancelMetaEdit('county')">Cancel</button>
+        <button class="btn primary" onclick="saveMetaEdit('county')">💾 Save Details</button>
+      </div>
+    </div>
+    <div class="filter-bar">
+      <div class="fg">
+        <span class="fl">Age Group <span style="color:var(--red)">*</span></span>
+        <select id="ceAge" onchange="renderQTEditor('county')">
+          <option value="">— Select Age Group —</option>
+          <option value="10+11">10+11</option>
+          <option value="12">12</option>
+          <option value="13">13</option>
+          <option value="14">14</option>
+          <option value="15">15</option>
+          <option value="16">16</option>
+          <option value="17+">17+</option>
+        </select>
+      </div>
+      <div class="fg">
+        <span class="fl">Gender</span>
+        <select id="ceGender" onchange="renderQTEditor('county')">
+          <option value="">All</option><option value="Boys">Boys</option><option value="Girls">Girls</option>
+        </select>
+      </div>
+      <div class="fg">
+        <span class="fl">Stroke</span>
+        <select id="ceStroke" onchange="renderQTEditor('county')">
+          <option value="">All Strokes</option>
+          <option value="Free">Freestyle</option><option value="Back">Backstroke</option>
+          <option value="Breast">Breaststroke</option><option value="Fly">Butterfly</option>
+          <option value="IM">Individual Medley</option>
+        </select>
+      </div>
+      <div class="fg">
+        <span class="fl">Course</span>
+        <select id="ceCourse" onchange="renderQTEditor('county')">
+          <option value="">Both</option>
+          <option value="Short Course">Short Course</option>
+          <option value="Long Course">Long Course</option>
+        </select>
+      </div>
+    </div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:16px">
+      <button class="fbtn reset" onclick="resetQTFilters('county')">Reset Filters</button>
+      <button class="fbtn" onclick="addQTRow('county')">＋ Add Row</button>
+      <button class="btn primary" onclick="downloadQTData('county')">⬇ Download JSON</button>
+    </div>
+    <div id="countyEditorContent">
+      <div class="empty"><div class="empty-icon">👆</div><p>Select an Age Group above to view and edit qualifying times.</p></div>
+    </div>
+  </div>
+
+  <!-- REGIONAL QT EDITOR TAB (desktop only) -->
+  <div class="panel" id="tab-regional-editor">
+    <div class="comp-meta-bar">
+      <div>
+        <div class="comp-meta-title" id="regionalMetaTitle">Regional Championships</div>
+        <div class="comp-meta-dates" id="regionalMetaDates">No dates set — click Edit Details to configure</div>
+      </div>
+      <button class="fbtn" id="regionalMetaBtn" onclick="toggleMetaEdit('regional')">✏️ Edit Details</button>
+    </div>
+    <div class="comp-meta-edit-form" id="regionalMetaEditForm" style="display:none">
+      <div class="form-grid-2" style="margin-bottom:12px">
+        <div class="fg" style="grid-column:1/span 2">
+          <label class="form-label">Competition Title</label>
+          <input type="text" id="regionalMetaTitleInput" class="form-input" placeholder="e.g. SE London Regional Championships 2026">
+        </div>
+        <div class="fg">
+          <label class="form-label">Date From</label>
+          <input type="date" id="regionalMetaFrom" class="form-input">
+        </div>
+        <div class="fg">
+          <label class="form-label">Date To</label>
+          <input type="date" id="regionalMetaTo" class="form-input">
+        </div>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button class="btn sec" onclick="cancelMetaEdit('regional')">Cancel</button>
+        <button class="btn primary" onclick="saveMetaEdit('regional')">💾 Save Details</button>
+      </div>
+    </div>
+    <div class="filter-bar">
+      <div class="fg">
+        <span class="fl">Age Group <span style="color:var(--red)">*</span></span>
+        <select id="reAge" onchange="renderQTEditor('regional')">
+          <option value="">— Select Age Group —</option>
+          <option value="11/12">11/12</option><option value="13">13</option>
+          <option value="14">14</option><option value="15">15</option>
+          <option value="16">16</option><option value="17">17</option>
+          <option value="18+">18+</option>
+        </select>
+      </div>
+      <div class="fg">
+        <span class="fl">Gender</span>
+        <select id="reGender" onchange="renderQTEditor('regional')">
+          <option value="">All</option><option value="Boys">Boys</option><option value="Girls">Girls</option>
+        </select>
+      </div>
+      <div class="fg">
+        <span class="fl">Stroke</span>
+        <select id="reStroke" onchange="renderQTEditor('regional')">
+          <option value="">All Strokes</option>
+          <option value="Free">Freestyle</option><option value="Back">Backstroke</option>
+          <option value="Breast">Breaststroke</option><option value="Fly">Butterfly</option>
+          <option value="IM">Individual Medley</option>
+        </select>
+      </div>
+      <div class="fg">
+        <span class="fl">Course</span>
+        <select id="reCourse" onchange="renderQTEditor('regional')">
+          <option value="">Both</option>
+          <option value="Short Course">Short Course</option>
+          <option value="Long Course">Long Course</option>
+        </select>
+      </div>
+    </div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:16px">
+      <button class="fbtn reset" onclick="resetQTFilters('regional')">Reset Filters</button>
+      <button class="fbtn" onclick="addQTRow('regional')">＋ Add Row</button>
+      <button class="btn primary" onclick="downloadQTData('regional')">⬇ Download JSON</button>
+    </div>
+    <div id="regionalEditorContent">
+      <div class="empty"><div class="empty-icon">👆</div><p>Select an Age Group above to view and edit qualifying times.</p></div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ══ LOAD DATA MODAL ════════════════════════════════════════ -->
+<div class="modal-overlay" id="dataModal">
+  <div class="modal-box">
+    <div class="modal-title">
+      📤 Load Data Files
+      <button class="modal-close" onclick="hideDataModal()">✕</button>
+    </div>
+    <div class="form-row">
+      <label class="form-label">Swimmers &amp; PBs (swimmers_pb.json)</label>
+      <input type="file" id="fileSwimmers" accept=".json" class="form-input">
+    </div>
+    <div class="form-row">
+      <label class="form-label">County QT Data (county_qt.json)</label>
+      <input type="file" id="fileCountyQT" accept=".json" class="form-input">
+    </div>
+    <div class="form-row">
+      <label class="form-label">Regional QT Data (regional_qt.json)</label>
+      <input type="file" id="fileRegionalQT" accept=".json" class="form-input">
+    </div>
+    <div id="dataError" style="display:none;color:var(--red);font-size:0.78rem;margin-bottom:12px;padding:8px 10px;background:rgba(220,38,38,0.08);border-radius:6px;"></div>
+    <div style="display:flex;gap:10px;margin-top:18px;flex-wrap:wrap">
+      <button class="btn sec" onclick="hideDataModal()">Cancel</button>
+      <button class="btn primary" onclick="loadDataFiles()">💾 Load Files</button>
+      <button class="btn sec" onclick="downloadSwimmers()" style="margin-left:auto" title="Export current swimmer data for use on another device">⬇ Download Swimmers PBs</button>
+    </div>
+    <div class="note" style="margin-top:10px">Data stored in browser localStorage. Use ⬇ Download to transfer to another device.</div>
+  </div>
+</div>
+
+<!-- ══ ADD SWIMMER MODAL ══════════════════════════════════════ -->
+<div class="modal-overlay" id="addSwimmerModal">
+  <div class="modal-box">
+    <div class="modal-title">
+      <span id="asModalTitle">👤 Add Swimmer</span>
+      <button class="modal-close" onclick="hideAddSwimmerModal()">✕</button>
+    </div>
+    <div class="form-grid-2" style="margin-bottom:12px">
+      <div class="form-row" style="margin-bottom:0">
+        <label class="form-label">Full Name</label>
+        <input type="text" id="asName" placeholder="e.g. Alex Smith" class="form-input">
+      </div>
+      <div class="form-row" style="margin-bottom:0">
+        <label class="form-label">Date of Birth</label>
+        <input type="date" id="asDOB" class="form-input">
+      </div>
+    </div>
+    <div class="form-grid-2">
+      <div class="form-row" style="margin-bottom:0">
+        <label class="form-label">Gender</label>
+        <select id="asGender" class="form-input" style="min-width:0">
+          <option value="Boys">Boys</option>
+          <option value="Girls">Girls</option>
+        </select>
+      </div>
+      <div class="form-row" style="margin-bottom:0">
+        <label class="form-label">Squad</label>
+        <select id="asSquad" class="form-input" style="min-width:0">
+          <option value="" style="color:var(--text3);font-style:italic">— None —</option>
+          <option value="Development">Development</option>
+          <option value="Junior">Junior</option>
+          <option value="Senior">Senior</option>
+          <option value="Active">Active</option>
+          <option value="Masters">Masters</option>
+          <option value="Former Swimmer">Former Swimmer</option>
+        </select>
+      </div>
+    </div>
+    <div style="margin-bottom:12px"></div>
+    <div class="form-label" style="margin-bottom:8px">Personal Bests</div>
+    <div id="asPBList"></div>
+    <button type="button" onclick="addPBRow()"
+      style="background:none;border:1px dashed var(--border);color:var(--accent);border-radius:8px;padding:7px;width:100%;cursor:pointer;font-size:0.8rem;font-family:inherit;margin-bottom:12px;">
+      ＋ Add PB entry
+    </button>
+    <div id="asError" style="display:none;color:var(--red);font-size:0.78rem;padding:8px 10px;background:rgba(220,38,38,0.08);border-radius:6px;margin-bottom:10px;"></div>
+    <div style="display:flex;gap:10px;margin-top:8px">
+      <button class="btn sec" onclick="hideAddSwimmerModal()">Cancel</button>
+      <button class="btn primary" id="asSaveBtn" onclick="saveSwimmer()">💾 Save Swimmer</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ SYNC FROM SHEETS MODAL ════════════════════════════════ -->
+<div class="modal-overlay" id="syncModal">
+  <div class="modal-box" style="max-width:480px">
+    <div class="modal-title">
+      🔄 Sync from Google Sheets
+      <button class="modal-close" onclick="hideSyncModal()">✕</button>
+    </div>
+    <p style="font-size:0.82rem;color:var(--text2);margin-bottom:16px;line-height:1.6">
+      Fetches swimmer profiles and computes PBs directly from the Google Sheet.
+      Sheet swimmers are merged with any locally-added swimmers.
+      You must be signed into Google in this browser.
+    </p>
+    <div id="syncUrlWarning" style="display:none;background:rgba(220,38,38,0.08);border:1px solid rgba(220,38,38,0.2);border-radius:8px;padding:10px 12px;font-size:0.78rem;color:var(--red);margin-bottom:14px">
+      ⚠️ No Apps Script URL configured. Paste your Web App URL into
+      <code>SHEETS_SYNC_URL</code> in the dashboard's CONFIGURATION section.
+      See SETUP.md for instructions.
+    </div>
+    <div class="form-row" style="margin-bottom:14px">
+      <label class="form-label">Handling of local-only swimmers</label>
+      <select id="syncMergeMode" class="form-input">
+        <option value="keep">Keep local swimmers not in the Sheet</option>
+        <option value="hide">Hide local swimmers not in the Sheet</option>
+        <option value="remove">Remove local swimmers not in the Sheet</option>
+      </select>
+    </div>
+    <div id="syncStatus" style="display:none;font-size:0.78rem;padding:10px 12px;border-radius:8px;margin-bottom:14px;line-height:1.6"></div>
+    <div style="display:flex;gap:10px;margin-top:4px;flex-wrap:wrap;align-items:center">
+      <button class="btn sec" onclick="hideSyncModal()">Cancel</button>
+      <button class="btn primary" id="syncBtn" onclick="startSync()">🔄 Sync Now</button>
+      <span id="syncSpinner" style="display:none;font-size:0.78rem;color:var(--text3)">⏳ Fetching…</span>
+    </div>
+    <div class="note" style="margin-top:12px">
+      Last synced: <span id="syncLastTime">Never</span>
+    </div>
+  </div>
+</div>
+
+<!-- ══ SETTINGS MODAL ══════════════════════════════════════════ -->
+<div class="modal-overlay" id="settingsModal">
+  <div class="modal-box" style="max-width:480px">
+    <div class="modal-title">
+      ⚙️ Settings
+      <button class="modal-close" onclick="hideSettingsModal()">✕</button>
+    </div>
+    <p style="font-size:0.82rem;color:var(--text2);margin-bottom:16px;line-height:1.6">
+      Stored in your browser only — never embedded in the dashboard file.
+      Each coach enters their own credentials on their own device.
+    </p>
+    <div class="form-row">
+      <label class="form-label">Apps Script Web App URL</label>
+      <input type="text" id="settingsSyncUrl" class="form-input" placeholder="https://script.google.com/macros/s/…/exec">
+    </div>
+    <div class="form-row">
+      <label class="form-label">Sync Token</label>
+      <div style="display:flex;gap:8px;align-items:center">
+        <input type="password" id="settingsToken" class="form-input" placeholder="Your secret token" style="flex:1">
+        <button class="fbtn" onclick="toggleSettingsTokenVisibility()" title="Show/hide">👁</button>
+      </div>
+    </div>
+    <div style="display:flex;gap:10px;margin-top:4px">
+      <button class="btn sec" onclick="hideSettingsModal()">Cancel</button>
+      <button class="btn primary" onclick="saveSettings()">💾 Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ SYNC FROM SHEETS MODAL ════════════════════════════════ -->
+<div class="modal-overlay" id="syncModal">
+  <div class="modal-box" style="max-width:480px">
+    <div class="modal-title">
+      🔄 Sync from Google Sheets
+      <button class="modal-close" onclick="hideSyncModal()">✕</button>
+    </div>
+    <p style="font-size:0.82rem;color:var(--text2);margin-bottom:16px;line-height:1.6">
+      Fetches swimmer profiles and PBs from the Google Sheet. Credentials are read
+      from Settings and stored only in this browser — not in the file.
+    </p>
+    <div id="syncUrlWarning" style="display:none;background:rgba(220,38,38,0.08);border:1px solid rgba(220,38,38,0.2);border-radius:8px;padding:10px 12px;font-size:0.78rem;color:var(--red);margin-bottom:14px">
+      ⚠️ No Apps Script URL configured. Open ⚙️ Settings first.
+    </div>
+    <div class="form-row" style="margin-bottom:12px">
+      <label class="form-label">Sync Token <span style="color:var(--text3);font-weight:400;text-transform:none;font-size:0.68rem">(stored locally)</span></label>
+      <div style="display:flex;gap:8px;align-items:center">
+        <input type="password" id="syncTokenInput" class="form-input" placeholder="Enter your sync token…" style="flex:1">
+        <button class="fbtn" onclick="toggleTokenVisibility()" title="Show/hide token">👁</button>
+      </div>
+    </div>
+    <div class="form-row" style="margin-bottom:14px">
+      <label class="form-label">Local-only swimmers (not in Sheet)</label>
+      <select id="syncMergeMode" class="form-input">
+        <option value="keep">Keep</option>
+        <option value="hide">Hide</option>
+        <option value="remove">Remove</option>
+      </select>
+    </div>
+    <div id="syncStatus" style="display:none;font-size:0.78rem;padding:10px 12px;border-radius:8px;margin-bottom:14px;line-height:1.6"></div>
+    <div style="display:flex;gap:10px;margin-top:4px;flex-wrap:wrap;align-items:center">
+      <button class="btn sec" onclick="hideSyncModal()">Cancel</button>
+      <button class="btn primary" id="syncBtn" onclick="startSync()">🔄 Sync Now</button>
+      <span id="syncSpinner" style="display:none;font-size:0.78rem;color:var(--text3)">⏳ Fetching…</span>
+    </div>
+    <div class="note" style="margin-top:12px">
+      Last synced: <span id="syncLastTime">Never</span>
+    </div>
+  </div>
+</div>
+
+<!-- ══ FAB SPEED DIAL ════════════════════════════════════════ -->
+<div class="fab-backdrop" id="fabBackdrop" onclick="closeFab()"></div>
+<div class="fab-dial">
+  <div class="fab-children" id="fabChildren">
+    <div class="fab-child-row">
+      <button class="fab-child" onclick="fabShowAddSwimmer()" title="Add Swimmer">👤</button>
+    </div>
+    <div class="fab-child-row">
+      <button class="fab-child" onclick="fabShowSyncModal()" title="Sync from Google Sheets">🔄</button>
+    </div>
+    <div class="fab-child-row">
+      <button class="fab-child" onclick="fabShowDataModal()" title="Load / Download Data">📤</button>
+    </div>
+    <div class="fab-child-row">
+      <button class="fab-child" onclick="fabShowSettingsModal()" title="Settings">⚙️</button>
+    </div>
+    <div class="fab-child-row">
+      <button class="fab-child" id="fabThemeBtn" onclick="fabToggleTheme()" title="Toggle Theme">🌙</button>
+    </div>
+  </div>
+  <button class="fab-parent" id="fabParent" onclick="toggleFab()" title="Actions">＋</button>
+</div>
+
+<script>
+// ============================================================
+// CONFIGURATION — update championship dates here each season
+// ============================================================
+const COUNTY_CHAMPS_DATE   = '2026-02-15'; // ← update each season
+const REGIONAL_CHAMPS_DATE = '2026-05-04'; // ← update each season
+
+// ← Paste your Apps Script Web App URL here after deployment (see SETUP.md)
+// ← Leave blank. Enter URL via ⚙️ Settings in the dashboard (stored in localStorage, not here).
+const SHEETS_SYNC_URL = '';
+
+const ALL_EVENTS = [
+  '50 Free','100 Free','200 Free','400 Free','800 Free','1500 Free',
+  '50 Back','100 Back','200 Back',
+  '50 Breast','100 Breast','200 Breast',
+  '50 Fly','100 Fly','200 Fly',
+  '100 IM','200 IM','400 IM'
+];
+
+const AVATAR_COLORS = [
+  {bg:'rgba(26,86,196,0.13)',  color:'#1a56c4'},
+  {bg:'rgba(14,165,212,0.13)', color:'#0891b2'},
+  {bg:'rgba(5,150,105,0.13)',  color:'#059669'},
+  {bg:'rgba(124,58,237,0.13)', color:'#7c3aed'},
+  {bg:'rgba(219,39,119,0.13)', color:'#db2777'},
+  {bg:'rgba(217,119,6,0.13)',  color:'#b45309'},
+  {bg:'rgba(220,38,38,0.13)',  color:'#dc2626'},
+  {bg:'rgba(15,118,110,0.13)', color:'#0f766e'},
+  {bg:'rgba(79,134,216,0.13)', color:'#4f86d8'},
+  {bg:'rgba(20,184,166,0.13)', color:'#0d9488'},
+  {bg:'rgba(168,85,247,0.13)', color:'#9333ea'},
+  {bg:'rgba(245,158,11,0.13)', color:'#d97706'},
+  {bg:'rgba(239,68,68,0.13)',  color:'#ef4444'},
+  {bg:'rgba(16,185,129,0.13)', color:'#059669'},
+  {bg:'rgba(37,99,235,0.13)',  color:'#2563eb'},
+  {bg:'rgba(236,72,153,0.13)', color:'#ec4899'},
+];
+
+// ============================================================
+// MODULE-LEVEL UTILITIES
+// ============================================================
+// Single source of truth for status precedence ordering
+const STATUS_RANK = s => ({'Qualified':0,'Consideration':1,'Outside':2,'No PB':3,'No Data':4}[s] ?? 5);
+
+// Escape a value for use inside a single-quoted JS string in an HTML onclick attribute
+const escAttr = s => String(s).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+
+// ============================================================
+// DATA GLOBALS
+// ============================================================
+
+// ── QT format helper: handles plain array (old) and {meta,times} (new) ──
+function parseQTFull(raw) {
+  if (!raw) return { meta: { title:'', dateFrom:'', dateTo:'' }, times: [] };
+  const d = typeof raw === 'string' ? JSON.parse(raw) : raw;
+  if (Array.isArray(d)) return { meta: { title:'', dateFrom:'', dateTo:'' }, times: d };
+  return { meta: d.meta || { title:'', dateFrom:'', dateTo:'' }, times: d.times || [] };
+}
+
+// Safely read and parse a localStorage key; returns fallback on any error.
+function lsGet(key, fallback) {
+  try { const v = localStorage.getItem(key); return v != null ? JSON.parse(v) : fallback; }
+  catch (e) { console.warn('Coach Dashboard: corrupt localStorage key "' + key + '" — reset to default.', e); return fallback; }
+}
+
+let SWIMMERS = lsGet('coach_SWIMMERS', []);
+
+let _cFull, _rFull;
+try { _cFull = parseQTFull(localStorage.getItem('coach_COUNTY_QT_FULL')   || localStorage.getItem('coach_COUNTY_QT')); }
+catch (e) { console.warn('Coach Dashboard: corrupt county QT data — reset.', e); _cFull = parseQTFull(null); }
+try { _rFull = parseQTFull(localStorage.getItem('coach_REGIONAL_QT_FULL') || localStorage.getItem('coach_REGIONAL_QT')); }
+catch (e) { console.warn('Coach Dashboard: corrupt regional QT data — reset.', e); _rFull = parseQTFull(null); }
+
+let COUNTY_QT_META   = _cFull.meta;
+let REGIONAL_QT_META = _rFull.meta;
+let COUNTY_QT        = _cFull.times;
+let REGIONAL_QT      = _rFull.times;
+
+if (SWIMMERS.length === 0) loadSampleData();
+
+// Collapse-all state per tab
+const collapseAllState = { county: false, regional: false };
+
+// Edit swimmer state — null when adding new, swimmer id string when editing
+let editingSwimmerId = null;
+
+// ============================================================
+// UTILITIES
+// ============================================================
+function timeToSec(t) {
+  if (!t) return Infinity;
+  const p = t.split(':');
+  return p.length === 2 ? parseInt(p[0]) * 60 + parseFloat(p[1]) : parseFloat(p[0]);
+}
+function secToTime(s) {
+  if (!isFinite(s) || s == null) return '—';
+  const m = Math.floor(s / 60);
+  const r = (s - m * 60).toFixed(2);
+  return m > 0 ? m + ':' + r.padStart(5, '0') : r;
+}
+function parseLocalDate(d) {
+  const [y,m,day] = d.split('-').map(Number);
+  return new Date(y, m-1, day);
+}
+function fmtDate(d) {
+  if (!d) return '—';
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const dt = parseLocalDate(d);
+  return `${dt.getDate()} ${months[dt.getMonth()]} ${dt.getFullYear()}`;
+}
+function getAgeAtEndOfYear(dob, year) {
+  return year - parseLocalDate(dob).getFullYear();
+}
+function getSeasonYear(champDateStr) {
+  return new Date() > parseLocalDate(champDateStr)
+    ? parseLocalDate(champDateStr).getFullYear() + 1
+    : parseLocalDate(champDateStr).getFullYear();
+}
+function getCountyAgeBracket(dob) {
+  const age = getAgeAtEndOfYear(dob, getSeasonYear(COUNTY_CHAMPS_DATE));
+  if (age <= 11) return '10+11';
+  if (age >= 17) return '17+';
+  return String(age);
+}
+function getRegionalAgeBracket(dob) {
+  const age = getAgeAtEndOfYear(dob, getSeasonYear(REGIONAL_CHAMPS_DATE));
+  if (age <= 12) return '11/12';
+  if (age >= 18) return '18+';
+  return String(age);
+}
+function initials(name) {
+  return name.split(' ').slice(0,2).map(w => w[0]).join('').toUpperCase();
+}
+function escHtml(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ============================================================
+// QT LOOKUP
+// ============================================================
+function lookupQT(qtData, gender, ageBracket, event, course) {
+  const qtCourse = course === 'S' ? 'Short Course' : 'Long Course';
+  return qtData.find(r =>
+    r.gender === gender && r.age === ageBracket &&
+    r.course === qtCourse && r.event === event
+  ) || null;
+}
+function calcStatus(pbSec, qt) {
+  if (!qt || (qt.qualify === null && qt.consider === null))
+    return { status: 'No Data', gapQ: null, gapC: null };
+  // Normalise: qualify should be the faster (smaller) time — guards against inverted source data
+  const qualify  = (qt.qualify != null && qt.consider != null) ? Math.min(qt.qualify, qt.consider) : qt.qualify;
+  const consider = (qt.qualify != null && qt.consider != null) ? Math.max(qt.qualify, qt.consider) : qt.consider;
+  if (pbSec === null)
+    return { status: 'No PB', gapQ: null, gapC: null, qualify, consider };
+  const gapQ = qualify  != null ? pbSec - qualify  : null;
+  const gapC = consider != null ? pbSec - consider : null;
+  let status = 'Outside';
+  if (qualify  != null && pbSec <= qualify)  status = 'Qualified';
+  else if (consider != null && pbSec <= consider) status = 'Consideration';
+  return { status, gapQ, gapC, qualify, consider };
+}
+
+// ============================================================
+// BUILD SWIMMER ROWS
+// ============================================================
+function buildSwimmerRows(swimmer, qtData, ageBracketFn, courseFilter, strokeFilter, statusFilter, showNoPB) {
+  const rows   = [];
+  const bracket = ageBracketFn(swimmer.dob);
+  const pbMap  = {};
+  (swimmer.pbs || []).forEach(pb => {
+    const key = pb.event + '|' + pb.course;
+    const sec = timeToSec(pb.time);
+    if (!pbMap[key] || sec < pbMap[key].sec) pbMap[key] = { ...pb, sec };
+  });
+
+  ALL_EVENTS.forEach(event => {
+    if (strokeFilter && !event.includes(strokeFilter)) return;
+    const courses = courseFilter ? [courseFilter] : ['S', 'L'];
+    courses.forEach(course => {
+      const qt = lookupQT(qtData, swimmer.gender, bracket, event, course);
+      if (!qt) return;
+      if (qt.qualify === null && qt.consider === null) return;
+      const pbEntry = pbMap[event + '|' + course] || null;
+      const pbSec   = pbEntry ? pbEntry.sec : null;
+      const r       = calcStatus(pbSec, qt);
+
+      // Status filter (no No PB option in dropdown)
+      if (statusFilter) {
+        if (r.status !== statusFilter) return;
+      } else {
+        // No status filter: hide No PB unless toggle is on
+        if ((r.status === 'No PB' || r.status === 'No Data') && !showNoPB) return;
+      }
+      rows.push({ event, course, pb: pbEntry, pbSec, ...r });
+    });
+  });
+  return rows;
+}
+
+// ============================================================
+// PROGRESS BAR
+// ============================================================
+function buildProgressBar(pbSec, qualify, consider) {
+  if (!qualify && !consider) return '';
+  const rawCT = consider || qualify * 1.04;
+  const rawQT = qualify  || consider * 0.97;
+  // Normalise: ct must be the slower (larger) time, qt the faster (smaller).
+  // Guards against inverted source data (e.g. county_qt Girls/17+/SC/200 IM).
+  const ct = Math.max(rawCT, rawQT);
+  const qt = Math.min(rawCT, rawQT);
+  const slowAnchor = ct * 1.06, fastAnchor = qt * 0.988;
+  const range = slowAnchor - fastAnchor;
+  if (range <= 0) return '';
+  const toP = t => Math.max(2, Math.min(98, ((slowAnchor - t) / range) * 100));
+  const ctP = toP(ct).toFixed(1), qtP = toP(qt).toFixed(1);
+  let fillP = 0, cls = 'nopb';
+  if (pbSec != null) {
+    fillP = toP(pbSec).toFixed(1);
+    cls   = pbSec <= qt ? 'qualified' : pbSec <= ct ? 'consideration' : 'outside';
+  }
+  return `<div class="prog-wrap"><div class="prog-fill ${cls}" style="width:${fillP}%"></div><div class="prog-marker ct" style="left:${ctP}%"></div><div class="prog-marker qt" style="left:${qtP}%"></div></div>`;
+}
+
+// ============================================================
+// INFO BANNER
+// ============================================================
+function buildBanner(isCounty) {
+  const champDate = isCounty ? COUNTY_CHAMPS_DATE : REGIONAL_CHAMPS_DATE;
+  const label     = isCounty ? 'County' : 'Regional';
+  const champYear = parseLocalDate(champDate).getFullYear();
+  const isPast    = new Date() > parseLocalDate(champDate);
+  const seasonYear = getSeasonYear(champDate);
+  if (isPast) {
+    return `ℹ️ <strong>Age Group note:</strong> The ${champYear} ${label} Championships took place on ${fmtDate(champDate)}. Age Groups shown are for the <strong>${seasonYear} season</strong> — calculated as each swimmer's age on 31 December ${seasonYear}. Qualifying and consideration times are from the <strong>${champYear} season</strong> as ${seasonYear} standards have not yet been published.`;
+  } else {
+    return `ℹ️ <strong>Age Group note:</strong> Age Groups are calculated as each swimmer's age on 31 December ${champYear}, the year of the ${label} Championships (${fmtDate(champDate)}).`;
+  }
+}
+
+// ============================================================
+// EVENT-LEVEL BEST STATUS HELPER
+// Groups rows by event and returns the best status per event.
+// Precedence: Qualified > Consideration > Outside > No PB > No Data
+// ============================================================
+function getEventBestStatuses(rows) {
+  const eventMap = {};
+  rows.forEach(r => {
+    if (!eventMap[r.event] || STATUS_RANK(r.status) < STATUS_RANK(eventMap[r.event].status)) {
+      eventMap[r.event] = r;
+    }
+  });
+  return eventMap; // { eventName: bestRow }
+}
+
+// ============================================================
+// RENDER TAB
+// ============================================================
+function renderTab(prefix) {
+  const isCounty    = prefix === 'county';
+  const qtData      = isCounty ? COUNTY_QT : REGIONAL_QT;
+  const ageFn       = isCounty ? getCountyAgeBracket : getRegionalAgeBracket;
+  const p           = isCounty ? 'c' : 'r';
+  const listEl      = document.getElementById(prefix + 'List');
+  const statsEl     = document.getElementById(prefix + 'Stats');
+  const noteEl      = document.getElementById(prefix + 'Note');
+  const bannerEl    = document.getElementById(prefix + 'Banner');
+  const gender       = document.getElementById(p + 'Gender').value;
+  const ageFilter    = document.getElementById(p + 'Age').value;
+  const strokeFilter = document.getElementById(p + 'Stroke').value;
+  const statusFilter = document.getElementById(p + 'Status').value;
+  const courseFilter = document.getElementById(p + 'Course').value;
+  const showNoPB      = document.getElementById(p + 'ShowNoPB').checked;
+  const showFormer    = document.getElementById(p + 'ShowFormer')?.checked || false;
+  const squadFilter   = document.getElementById(p + 'Squad')?.value || '';
+  const nameFilter    = (document.getElementById(p + 'Name')?.value || '').toLowerCase().trim();
+
+  // Show/hide No PB toggle only when status = All (Former toggle always visible)
+  const noPBLabel = document.getElementById(p + 'NoPBLabel');
+  if (noPBLabel) noPBLabel.style.display = statusFilter ? 'none' : '';
+
+  // Banner
+  if (bannerEl) bannerEl.innerHTML = buildBanner(isCounty);
+
+  // Filter swimmers — sorted alphabetically by name
+  const visibleSwimmers = SWIMMERS
+    .slice()
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .filter(sw => {
+      // Always hide swimmers flagged hidden by the sync merge mode
+      if (sw.hidden) return false;
+      // Former Swimmer gate: hide unless toggle on OR squad filter explicitly selects them
+      if (!showFormer && squadFilter !== 'Former Swimmer' && sw.squad === 'Former Swimmer') return false;
+      // Squad filter
+      if (squadFilter === 'Undefined') { if (sw.squad) return false; }
+      else if (squadFilter && squadFilter !== 'Former Swimmer') { if (sw.squad !== squadFilter) return false; }
+      else if (squadFilter === 'Former Swimmer') { if (sw.squad !== 'Former Swimmer') return false; }
+      if (nameFilter && !sw.name.toLowerCase().includes(nameFilter)) return false;
+      if (gender && sw.gender !== gender) return false;
+      if (ageFilter && ageFn(sw.dob) !== ageFilter) return false;
+      return true;
+    });
+
+  // Stat card counts — per event (not per event+course), using best status across courses
+  let qualCount = 0, conCount = 0, outCount = 0;
+  const qualNames = new Set(), conNames = new Set(), outNames = new Set();
+  visibleSwimmers.forEach(sw => {
+    const rows    = buildSwimmerRows(sw, qtData, ageFn, courseFilter, strokeFilter, '', false);
+    const bestMap = getEventBestStatuses(rows); // one entry per unique event
+    const bests   = Object.values(bestMap).map(r => r.status);
+    if (bests.some(s => s === 'Qualified'))     { qualCount++; qualNames.add(sw.name); }
+    if (bests.some(s => s === 'Consideration')) { conCount++;  conNames.add(sw.name); }
+    if (bests.some(s => s === 'Outside'))       { outCount++;  outNames.add(sw.name); }
+  });
+
+  // Stat cards
+  const renderStatCard = (cls, icon, count, label, names) => {
+    const filterVal = cls === 'qualified' ? 'Qualified' : cls === 'consideration' ? 'Consideration' : 'Outside';
+    const isActive  = statusFilter === filterVal ? ' active-filter' : '';
+    const nameList  = [...names].slice(0,5).map(n => escHtml(n)).join(', ') + (names.size > 5 ? ` +${names.size-5} more` : '');
+    return `<div class="stat-card ${cls}${isActive}" onclick="setStatusFilter('${prefix}','${filterVal}')">
+      <div class="stat-label">${label}</div>
+      <div class="stat-count">${count}</div>
+      <div class="stat-names">${nameList || 'None'}</div>
+      <div class="stat-icon">${icon}</div>
+    </div>`;
+  };
+  statsEl.innerHTML =
+    renderStatCard('qualified',     '✅', qualCount, 'Qualified',     qualNames) +
+    renderStatCard('consideration', '🔶', conCount,  'Consideration', conNames)  +
+    renderStatCard('outside',       '❌', outCount,  'Outside',       outNames);
+
+  // Swimmer cards
+  if (qtData.length === 0) {
+    const swimmerCount = SWIMMERS.filter(sw => !sw.hidden).length;
+    if (swimmerCount > 0) {
+      listEl.innerHTML = `<div class="empty">
+        <div class="empty-icon">📂</div>
+        <p><strong>${swimmerCount} swimmer${swimmerCount !== 1 ? 's' : ''} loaded</strong> — but no QT standards are loaded yet.</p>
+        <p style="margin-top:8px;font-size:0.78rem;color:var(--text3)">Upload <code>county_qt.json</code> and <code>regional_qt.json</code> to see qualifying comparisons.</p>
+        <button class="btn primary" style="margin-top:14px" onclick="closeFab();showDataModal()">📤 Load QT Data</button>
+      </div>`;
+    } else {
+      listEl.innerHTML = `<div class="empty">
+        <div class="empty-icon">📂</div>
+        <p>No data loaded yet.</p>
+        <p style="margin-top:8px;font-size:0.78rem;color:var(--text3)">Use the ＋ FAB to sync swimmers from Google Sheets, then upload QT standards.</p>
+        <div style="display:flex;gap:10px;justify-content:center;margin-top:14px;flex-wrap:wrap">
+          <button class="btn primary" onclick="closeFab();showSyncModal()">🔄 Sync Swimmers</button>
+          <button class="btn sec" onclick="closeFab();showDataModal()">📤 Load QT Data</button>
+        </div>
+      </div>`;
+    }
+    noteEl.textContent = '';
+    return;
+  }
+  if (visibleSwimmers.length === 0) {
+    listEl.innerHTML = `<div class="empty"><div class="empty-icon">🏊</div><p>No swimmers match the current filters.</p></div>`;
+    noteEl.textContent = '';
+    return;
+  }
+
+  const statusBadge = s => {
+    const cls = {Qualified:'qualified',Consideration:'consideration',Outside:'outside','No PB':'nopb','No Data':'nopb'}[s]||'nopb';
+    const lbl = {Qualified:'✅ Qualified',Consideration:'🔶 Consideration',Outside:'❌ Outside','No PB':'No PB','No Data':'N/A'}[s]||s;
+    return `<span class="badge ${cls}">${lbl}</span>`;
+  };
+
+  let html = ''; let renderedCount = 0;
+  visibleSwimmers.forEach((sw, idx) => {
+    const rows = buildSwimmerRows(sw, qtData, ageFn, courseFilter, strokeFilter, statusFilter, showNoPB);
+    if (rows.length === 0) return;
+    renderedCount++;
+
+    const pal       = AVATAR_COLORS[idx % AVATAR_COLORS.length];
+    const bracket   = ageFn(sw.dob);
+    const isCollapsed = collapseAllState[prefix] ? ' collapsed' : '';
+
+    // Compute best-per-event once, reuse for badges + table border colours
+    const bestByEvent  = getEventBestStatuses(rows);
+    const squadKey = (sw.squad || '').toLowerCase().replace(/\s+/g, '-');
+    const squadClass = squadKey ? `squad-${squadKey}` : '';
+    const bestStatuses = Object.values(bestByEvent).map(r => r.status);
+    const qCount = bestStatuses.filter(s => s === 'Qualified').length;
+    const cCount = bestStatuses.filter(s => s === 'Consideration').length;
+    const oCount = bestStatuses.filter(s => s === 'Outside').length;
+
+    // col-full = desktop label, col-abbr = mobile short label
+    const summaryBadges = [
+      qCount ? `<span class="badge qualified">✅ ${qCount} <span class="col-full">Qualified</span><span class="col-abbr">QT</span></span>` : '',
+      cCount ? `<span class="badge consideration">🔶 ${cCount} <span class="col-full">Consideration</span><span class="col-abbr">CT</span></span>` : '',
+      oCount ? `<span class="badge outside">❌ ${oCount} <span class="col-full">Outside</span><span class="col-abbr">OUT</span></span>` : '',
+    ].filter(Boolean).join('');
+
+    const swId = `${prefix}-sw-${idx}`;
+    html += `<div class="swimmer-card${isCollapsed}" id="${swId}">
+      <div class="swimmer-header" onclick="toggleSwimmer('${swId}')">
+        <div class="swimmer-avatar" style="background:${pal.bg};color:${pal.color}">${escHtml(initials(sw.name))}</div>
+        <div>
+          <div class="swimmer-name-line"><span class="swimmer-name-text">${escHtml(sw.name)}</span></div>
+          <div class="swimmer-meta"><span class="col-full">${sw.gender} &middot; </span><span class="age-group-meta">Age Group <strong>${bracket}</strong></span><div class="swimmer-pills"><span class="gender-pill-mobile gender-pill-${sw.gender==='Boys'?'boys':'girls'}">${sw.gender==='Boys'?'&#9794;':'&#9792;'}</span>${sw.squad?`<span class="squad-badge ${squadClass}">${escHtml(sw.squad)}</span>`:''}<span class="badge source-badge-${sw.source === 'sheet' ? 'sheet' : 'local'} col-full" title="${sw.source === 'sheet' ? 'Synced from Google Sheets' : 'Added locally'}">${sw.source === 'sheet' ? '📊' : '✏️'}</span></div></div>
+        </div>
+        <div class="swimmer-badges">${summaryBadges}</div>
+        <div class="swimmer-actions" onclick="event.stopPropagation()">
+          <button class="sw-action-btn" onclick="editSwimmer('${escAttr(sw.id)}')" title="Edit swimmer">✏️</button>
+          <button class="sw-action-btn" onclick="deleteSwimmer('${escAttr(sw.id)}')" title="Remove swimmer">🗑️</button>
+        </div>
+        <span class="chevron">▼</span>
+      </div>
+      <div class="swimmer-table-wrap">
+        <table class="swimmer-tbl">
+          <thead><tr>
+            <th>Event</th><th>Course</th><th>PB Time</th><th>PB Date</th>
+            <th><span class="col-full">Qualify Time</span><span class="col-abbr">QT</span></th><th><span class="col-full">Consider Time</span><span class="col-abbr">CT</span></th>
+            <th>Gap to QT</th><th>Gap to CT</th><th class="progress-col">Progress</th><th>Status</th>
+          </tr></thead>
+          <tbody>${(() => {
+            // Sort rows: by event name, then S before L; reuse bestByEvent computed above
+            const sorted  = [...rows].sort((a,b) => a.event.localeCompare(b.event) || a.course.localeCompare(b.course));
+            const bestMap = bestByEvent;
+            let prevEvent = null;
+            return sorted.map(r => {
+              const pbStr  = r.pbSec != null
+                ? `<span class="tnum-gold">${escHtml(r.pb.time)}</span>`
+                : `<span style="color:var(--text3)">—</span>`;
+              const pbDate = r.pb?.date ? fmtDate(r.pb.date) : '—';
+              const qtStr  = `<span class="tnum">${secToTime(r.qualify)}</span>`;
+              const ctStr  = `<span class="tnum">${secToTime(r.consider)}</span>`;
+              const gqStr  = r.gapQ != null
+                ? `<span class="${r.gapQ <= 0 ? 'dpos' : 'dneg'}">${r.gapQ <= 0 ? '▼' : '▲'}${Math.abs(r.gapQ).toFixed(2)}s</span>`
+                : `<span style="color:var(--text3)">—</span>`;
+              const gcStr  = r.gapC != null
+                ? `<span class="${r.gapC <= 0 ? 'dpos' : 'dneg'}">${r.gapC <= 0 ? '▼' : '▲'}${Math.abs(r.gapC).toFixed(2)}s</span>`
+                : `<span style="color:var(--text3)">—</span>`;
+              // Use event-level best status for the border colour so SC+LC rows share the same colour
+              const eventBestStatus = bestMap[r.event]?.status || r.status;
+              const rowCls = 'row-' + ({'No PB':'nopb','No Data':'nopb'}[eventBestStatus] || eventBestStatus.toLowerCase().replace(' ',''));
+              const isContinuation = (r.event === prevEvent);
+              const topBorder = !isContinuation && prevEvent !== null ? 'border-top:2px solid var(--border);' : '';
+              // Event cell: show name on first row, continuation mark on subsequent
+              const eventCell = isContinuation
+                ? `<td style="color:var(--text3);padding-left:20px;font-size:0.72rem;${topBorder}">└─</td>`
+                : `<td style="font-weight:600;color:var(--text);${topBorder}">${r.event}</td>`;
+              prevEvent = r.event;
+              return `<tr class="${rowCls}">
+                ${eventCell}
+                <td style="${topBorder}"><span class="badge ${r.course}">${r.course === 'S' ? 'SC' : 'LC'}</span></td>
+                <td style="${topBorder}">${pbStr}</td>
+                <td style="${topBorder}">${pbDate}</td>
+                <td style="${topBorder}">${qtStr}</td>
+                <td style="${topBorder}">${ctStr}</td>
+                <td style="${topBorder}">${gqStr}</td>
+                <td style="${topBorder}">${gcStr}</td>
+                <td class="progress-col" style="${topBorder}">${buildProgressBar(r.pbSec, r.qualify, r.consider)}</td>
+                <td style="${topBorder}">${statusBadge(r.status)}</td>
+              </tr>`;
+            }).join('');
+          })()}</tbody>
+        </table>
+      </div>
+    </div>`;
+  });
+
+  listEl.innerHTML = html || `<div class="empty"><div class="empty-icon">🔍</div><p>No results match the current filters.</p></div>`;
+
+  const champDate = isCounty ? COUNTY_CHAMPS_DATE : REGIONAL_CHAMPS_DATE;
+  const champYear = parseLocalDate(champDate).getFullYear();
+  const qtMeta    = isCounty ? COUNTY_QT_META : REGIONAL_QT_META;
+  const tabLabel  = qtMeta.title || (isCounty ? 'County' : 'Regional');
+  noteEl.textContent = `Showing ${tabLabel} QT standards · ${champYear} season · ${renderedCount} swimmer(s) shown.`;
+}
+
+function renderCounty()   { renderTab('county'); }
+function renderRegional() { renderTab('regional'); }
+
+function setStatusFilter(prefix, val) {
+  const p  = prefix === 'county' ? 'c' : 'r';
+  const el = document.getElementById(p + 'Status');
+  el.value = el.value === val ? '' : val;
+  renderTab(prefix);
+}
+function toggleSwimmer(id) { document.getElementById(id).classList.toggle('collapsed'); }
+function toggleCollapseAll(prefix) {
+  collapseAllState[prefix] = !collapseAllState[prefix];
+  document.querySelectorAll(`#${prefix}List .swimmer-card`)
+    .forEach(c => c.classList.toggle('collapsed', collapseAllState[prefix]));
+  const btn = document.getElementById(prefix + 'CollapseBtn');
+  if (btn) btn.textContent = collapseAllState[prefix] ? '⊞ Expand All' : '⊟ Collapse All';
+}
+function resetFilters(prefix) {
+  const p = prefix === 'county' ? 'c' : 'r';
+  ['Gender','Age','Stroke','Status','Course','Squad'].forEach(f => {
+    const el = document.getElementById(p + f);
+    if (el) el.value = '';
+  });
+  const formerEl = document.getElementById(p + 'ShowFormer');
+  if (formerEl) formerEl.checked = false;
+  const nameEl = document.getElementById(p + 'Name');
+  if (nameEl) nameEl.value = '';
+  const cb = document.getElementById(p + 'ShowNoPB');
+  if (cb) cb.checked = false;
+  collapseAllState[prefix] = false;
+  const btn = document.getElementById(prefix + 'CollapseBtn');
+  if (btn) btn.textContent = '⊟ Collapse All';
+  renderTab(prefix);
+}
+
+// ============================================================
+// TAB SWITCHING
+// ============================================================
+function showTab(name, btn) {
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+  if (btn) btn.classList.add('active');
+  if (name === 'county')          renderCounty();
+  if (name === 'regional')         renderRegional();
+  if (name === 'county-editor')    { updateMetaDisplay('county');   renderQTEditor('county'); }
+  if (name === 'regional-editor')  { updateMetaDisplay('regional'); renderQTEditor('regional'); }
+}
+
+// ============================================================
+// THEME
+// ============================================================
+function toggleTheme() {
+  document.body.classList.toggle('dark');
+  const isDark = document.body.classList.contains('dark');
+  localStorage.setItem('coach_theme', isDark ? 'dark' : 'light');
+  const btn = document.getElementById('fabThemeBtn');
+  if (btn) btn.textContent = isDark ? '☀️' : '🌙';
+}
+(function() {
+  if (localStorage.getItem('coach_theme') === 'dark') document.body.classList.add('dark');
+})();
+
+// ============================================================
+// DATA: LOAD, DOWNLOAD, SAVE
+// ============================================================
+function showDataModal()      { closeFab(); document.getElementById('dataModal').classList.add('open'); }
+function hideDataModal()      { document.getElementById('dataModal').classList.remove('open'); }
+function showAddSwimmerModal() {
+  closeFab();
+  editingSwimmerId = null;
+  document.getElementById('asModalTitle').textContent = '👤 Add Swimmer';
+  document.getElementById('asSaveBtn').textContent    = '💾 Save Swimmer';
+  document.getElementById('asError').style.display   = 'none';
+  document.getElementById('asName').value   = '';
+  document.getElementById('asDOB').value    = '';
+  document.getElementById('asGender').value = 'Boys';
+  document.getElementById('asSquad').value  = '';
+  document.getElementById('asPBList').innerHTML = '';
+  addPBRow();
+  document.getElementById('addSwimmerModal').classList.add('open');
+}
+function hideAddSwimmerModal() {
+  editingSwimmerId = null;
+  document.getElementById('addSwimmerModal').classList.remove('open');
+}
+
+function loadDataFiles() {
+  const errEl = document.getElementById('dataError');
+  errEl.style.display = 'none';
+  const defs = [
+    { el:'fileSwimmers',   ref:'SWIMMERS' },
+    { el:'fileCountyQT',   ref:'COUNTY_QT' },
+    { el:'fileRegionalQT', ref:'REGIONAL_QT' },
+  ];
+  const promises = defs.filter(d => document.getElementById(d.el).files[0])
+    .map(d => new Promise((res, rej) => {
+      const reader = new FileReader();
+      reader.onload = e => {
+        try { res({ ...d, data: JSON.parse(e.target.result) }); }
+        catch { rej(`Invalid JSON in ${document.getElementById(d.el).files[0].name}`); }
+      };
+      reader.onerror = () => rej('Failed to read file');
+      reader.readAsText(document.getElementById(d.el).files[0]);
+    }));
+  if (!promises.length) { errEl.textContent = 'Please select at least one file.'; errEl.style.display = 'block'; return; }
+  Promise.all(promises).then(results => {
+    results.forEach(r => {
+      if (r.ref === 'SWIMMERS') {
+        const timeRe = /^(\d{1,2}:)?\d{1,2}\.\d{2}$/;
+        const dobRe  = /^\d{4}-\d{2}-\d{2}$/;
+        let skipped = 0;
+        SWIMMERS = (Array.isArray(r.data) ? r.data : []).filter(sw => {
+          if (!sw.name || typeof sw.name !== 'string') { skipped++; return false; }
+          if (!sw.dob  || !dobRe.test(sw.dob) || isNaN(Date.parse(sw.dob))) { skipped++; return false; }
+          if (sw.gender !== 'Boys' && sw.gender !== 'Girls')                 { skipped++; return false; }
+          // Sanitise PBs — drop entries with unparseable times; coerce negatives
+          if (Array.isArray(sw.pbs)) {
+            sw.pbs = sw.pbs.filter(pb => pb.time && timeRe.test(String(pb.time)));
+          } else { sw.pbs = []; }
+          return true;
+        });
+        if (skipped) console.warn(`Coach Dashboard: ${skipped} swimmer record(s) skipped due to missing or invalid required fields.`);
+        localStorage.setItem('coach_SWIMMERS', JSON.stringify(SWIMMERS));
+      } else if (r.ref === 'COUNTY_QT') {
+        const parsed = parseQTFull(r.data);
+        COUNTY_QT_META = parsed.meta; COUNTY_QT = parsed.times;
+        localStorage.setItem('coach_COUNTY_QT_FULL', JSON.stringify({ meta: COUNTY_QT_META, times: COUNTY_QT }));
+      } else if (r.ref === 'REGIONAL_QT') {
+        const parsed = parseQTFull(r.data);
+        REGIONAL_QT_META = parsed.meta; REGIONAL_QT = parsed.times;
+        localStorage.setItem('coach_REGIONAL_QT_FULL', JSON.stringify({ meta: REGIONAL_QT_META, times: REGIONAL_QT }));
+      }
+    });
+    checkLocalStorageSize();
+    hideDataModal();
+    renderCounty(); renderRegional();
+  }).catch(err => { errEl.textContent = 'Error: ' + err; errEl.style.display = 'block'; });
+}
+
+function downloadSwimmers() {
+  const json = JSON.stringify(SWIMMERS, null, 2);
+  const blob = new Blob([json], { type: 'application/json' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href = url; a.download = 'swimmers_pb.json'; a.click();
+  // Delay revoke so browser has time to start the download
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+// ============================================================
+// LOCALSTORAGE SIZE GUARD
+// ============================================================
+function checkLocalStorageSize() {
+  try {
+    let total = 0;
+    ['coach_SWIMMERS','coach_COUNTY_QT_FULL','coach_REGIONAL_QT_FULL'].forEach(k => {
+      total += (localStorage.getItem(k) || '').length;
+    });
+    const kb = Math.round(total / 1024);
+    if (total > 4 * 1024 * 1024) {
+      console.warn(`Coach Dashboard: localStorage usage is ${kb} KB — approaching browser limit. Consider archiving old data.`);
+    }
+  } catch (e) { /* storage unavailable */ }
+}
+
+// ============================================================
+// ADD SWIMMER
+// ============================================================
+function addPBRow() {
+  const list = document.getElementById('asPBList');
+  const row  = document.createElement('div');
+  row.className = 'pb-event-row';
+  row.innerHTML = `
+    <button class="remove-evt" type="button" onclick="this.parentElement.remove()">✕</button>
+    <div class="pb-top-grid">
+      <div class="form-row" style="margin-bottom:0">
+        <label class="form-label">Event</label>
+        <select class="form-input as-event" style="min-width:0">
+          ${ALL_EVENTS.map(e => `<option value="${e}">${e}</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-row" style="margin-bottom:0">
+        <label class="form-label">Course</label>
+        <select class="form-input as-course" style="min-width:0">
+          <option value="S">Short Course (SC)</option>
+          <option value="L">Long Course (LC)</option>
+        </select>
+      </div>
+      <div class="form-row" style="margin-bottom:0">
+        <label class="form-label">Time</label>
+        <input type="text" class="form-input as-time" placeholder="1:05.32 or 28.74">
+      </div>
+      <div class="form-row" style="margin-bottom:0">
+        <label class="form-label">Date Set</label>
+        <input type="date" class="form-input as-date">
+      </div>
+    </div>
+    <div class="form-row" style="margin-top:8px;margin-bottom:0">
+      <label class="form-label">Competition (optional)</label>
+      <input type="text" class="form-input as-comp" placeholder="e.g. Watford SC County Qualifier 2025">
+    </div>`;
+  list.appendChild(row);
+}
+
+function saveSwimmer() {
+  const errEl  = document.getElementById('asError');
+  errEl.style.display = 'none';
+  const name   = document.getElementById('asName').value.trim();
+  const dob    = document.getElementById('asDOB').value;
+  const gender = document.getElementById('asGender').value;
+  if (!name) { errEl.textContent = 'Please enter a name.'; errEl.style.display = 'block'; return; }
+  if (!dob)  { errEl.textContent = 'Please enter a date of birth.'; errEl.style.display = 'block'; return; }
+  const squad = document.getElementById('asSquad').value || undefined;
+  const pbs = [];
+  for (const row of document.getElementById('asPBList').querySelectorAll('.pb-event-row')) {
+    const event  = row.querySelector('.as-event').value;
+    const course = row.querySelector('.as-course').value;
+    const time   = row.querySelector('.as-time').value.trim();
+    const date   = row.querySelector('.as-date').value;
+    const comp   = row.querySelector('.as-comp').value.trim();
+    if (!time) { errEl.textContent = `Please enter a time for ${event}.`; errEl.style.display = 'block'; return; }
+    if (!/^(\d{1,2}:)?\d{1,2}\.\d{2}$/.test(time)) { errEl.textContent = `Invalid time format for ${event}.`; errEl.style.display = 'block'; return; }
+    const entry = { event, course, time };
+    if (date) entry.date = date;
+    if (comp) entry.competition = comp;
+    pbs.push(entry);
+  }
+  if (editingSwimmerId) {
+    const idx = SWIMMERS.findIndex(s => s.id === editingSwimmerId);
+    if (idx !== -1) SWIMMERS[idx] = { ...SWIMMERS[idx], name, dob, gender, squad, pbs };
+    editingSwimmerId = null;
+  } else {
+    SWIMMERS.push({ id: 'sw_' + Date.now(), name, dob, gender, squad, pbs });
+  }
+  localStorage.setItem('coach_SWIMMERS', JSON.stringify(SWIMMERS));
+  checkLocalStorageSize();
+  hideAddSwimmerModal();
+  renderCounty(); renderRegional();
+}
+
+// ============================================================
+// EDIT / DELETE SWIMMER
+// ============================================================
+function editSwimmer(swId) {
+  const sw = SWIMMERS.find(s => s.id === swId);
+  if (!sw) return;
+  editingSwimmerId = swId;
+  document.getElementById('asModalTitle').textContent = '✏️ Edit Swimmer';
+  document.getElementById('asSaveBtn').textContent    = '💾 Save Changes';
+  document.getElementById('asError').style.display   = 'none';
+  document.getElementById('asName').value   = sw.name;
+  document.getElementById('asDOB').value    = sw.dob;
+  document.getElementById('asGender').value = sw.gender;
+  document.getElementById('asSquad').value  = sw.squad || '';
+  document.getElementById('asPBList').innerHTML = '';
+  // Pre-populate PB rows
+  (sw.pbs || []).forEach(pb => {
+    addPBRow();
+    const lastRow = document.getElementById('asPBList').lastElementChild;
+    if (!lastRow) return;
+    lastRow.querySelector('.as-event').value  = pb.event  || '';
+    lastRow.querySelector('.as-course').value = pb.course || 'S';
+    lastRow.querySelector('.as-time').value   = pb.time   || '';
+    lastRow.querySelector('.as-date').value   = pb.date   || '';
+    lastRow.querySelector('.as-comp').value   = pb.competition || '';
+  });
+  if (!sw.pbs || sw.pbs.length === 0) addPBRow();
+  document.getElementById('addSwimmerModal').classList.add('open');
+}
+
+function deleteSwimmer(swId) {
+  const sw = SWIMMERS.find(s => s.id === swId);
+  if (!sw) return;
+  if (!confirm(`Remove ${sw.name} from the squad? This cannot be undone.`)) return;
+  SWIMMERS = SWIMMERS.filter(s => s.id !== swId);
+  localStorage.setItem('coach_SWIMMERS', JSON.stringify(SWIMMERS));
+  renderCounty(); renderRegional();
+}
+
+
+// ============================================================
+// QT EDITOR — shared save helper
+// ============================================================
+function saveQTToStorage(prefix) {
+  if (prefix === 'county') {
+    localStorage.setItem('coach_COUNTY_QT_FULL',
+      JSON.stringify({ meta: COUNTY_QT_META, times: COUNTY_QT }));
+  } else {
+    localStorage.setItem('coach_REGIONAL_QT_FULL',
+      JSON.stringify({ meta: REGIONAL_QT_META, times: REGIONAL_QT }));
+  }
+}
+
+// ============================================================
+// QT EDITOR — competition metadata
+// ============================================================
+function toggleMetaEdit(prefix) {
+  const formEl = document.getElementById(prefix + 'MetaEditForm');
+  const btnEl  = document.getElementById(prefix + 'MetaBtn');
+  const isOpen = formEl.style.display !== 'none';
+  if (isOpen) { cancelMetaEdit(prefix); return; }
+  const meta = prefix === 'county' ? COUNTY_QT_META : REGIONAL_QT_META;
+  document.getElementById(prefix + 'MetaTitleInput').value = meta.title    || '';
+  document.getElementById(prefix + 'MetaFrom').value       = meta.dateFrom || '';
+  document.getElementById(prefix + 'MetaTo').value         = meta.dateTo   || '';
+  formEl.style.display = '';
+  btnEl.textContent    = '✕ Cancel';
+}
+
+function cancelMetaEdit(prefix) {
+  document.getElementById(prefix + 'MetaEditForm').style.display = 'none';
+  document.getElementById(prefix + 'MetaBtn').textContent        = '✏️ Edit Details';
+}
+
+function saveMetaEdit(prefix) {
+  const meta = {
+    title:    document.getElementById(prefix + 'MetaTitleInput').value.trim(),
+    dateFrom: document.getElementById(prefix + 'MetaFrom').value,
+    dateTo:   document.getElementById(prefix + 'MetaTo').value,
+  };
+  if (prefix === 'county') COUNTY_QT_META   = meta;
+  else                     REGIONAL_QT_META = meta;
+  saveQTToStorage(prefix);
+  updateMetaDisplay(prefix);
+  cancelMetaEdit(prefix);
+}
+
+function updateMetaDisplay(prefix) {
+  const meta    = prefix === 'county' ? COUNTY_QT_META : REGIONAL_QT_META;
+  const titleEl = document.getElementById(prefix + 'MetaTitle');
+  const datesEl = document.getElementById(prefix + 'MetaDates');
+  const fallback = prefix === 'county' ? 'County Championships' : 'Regional Championships';
+  if (titleEl) titleEl.textContent = meta.title || fallback;
+  if (datesEl) {
+    if (meta.dateFrom && meta.dateTo)
+      datesEl.textContent = fmtDate(meta.dateFrom) + ' — ' + fmtDate(meta.dateTo);
+    else if (meta.dateFrom)
+      datesEl.textContent = fmtDate(meta.dateFrom);
+    else
+      datesEl.textContent = 'No dates set — click Edit Details to configure';
+  }
+}
+
+// ============================================================
+// QT EDITOR — render table
+// ============================================================
+function resetQTFilters(prefix) {
+  const p = prefix === 'county' ? 'ce' : 're';
+  ['Age','Gender','Stroke','Course'].forEach(f => {
+    const el = document.getElementById(p + f);
+    if (el) el.value = '';
+  });
+  renderQTEditor(prefix);
+}
+
+function renderQTEditor(prefix) {
+  const isCounty  = prefix === 'county';
+  const p         = isCounty ? 'ce' : 're';
+  const arr       = isCounty ? COUNTY_QT : REGIONAL_QT;
+  const contentEl = document.getElementById(prefix + 'EditorContent');
+
+  const age    = document.getElementById(p + 'Age').value;
+  const gender = document.getElementById(p + 'Gender').value;
+  const stroke = document.getElementById(p + 'Stroke').value;
+  const course = document.getElementById(p + 'Course').value;
+
+  if (!age) {
+    contentEl.innerHTML = '<div class="empty"><div class="empty-icon">👆</div><p>Select an Age Group above to view and edit qualifying times.</p></div>';
+    return;
+  }
+
+  let filtered = arr.filter(r => r.age === age);
+  if (gender) filtered = filtered.filter(r => r.gender === gender);
+  if (stroke) filtered = filtered.filter(r => r.event.includes(stroke));
+  if (course) filtered = filtered.filter(r => r.course === course);
+
+  filtered.sort((a, b) => {
+    if (a.gender !== b.gender) return a.gender.localeCompare(b.gender);
+    if (a.course !== b.course) return a.course.localeCompare(b.course);
+    return parseInt(a.event) - parseInt(b.event) || a.event.localeCompare(b.event);
+  });
+
+  if (filtered.length === 0) {
+    contentEl.innerHTML = '<div class="empty"><p>No QT entries for this selection. Use ＋ Add Row to create one.</p></div>';
+    return;
+  }
+
+  const rows = filtered.map(r => {
+    // Rows with both times null = event not offered for this age group
+    if (r.qualify === null && r.consider === null) {
+      const _eg  = r.gender === 'Boys' ? 'S' : 'L';
+      const _ec  = r.course === 'Short Course' ? 'S' : 'L';
+      const _cl  = r.course === 'Short Course' ? 'SC' : 'LC';
+      return `<tr style="opacity:0.5;background:var(--surface2)">
+        <td><span class="badge ${_eg}">${r.gender}</span></td>
+        <td><span class="badge ${_ec}">${_cl}</span></td>
+        <td style="color:var(--text3);font-style:italic">${r.event}</td>
+        <td colspan="2" style="color:var(--text3);font-size:0.75rem;font-style:italic">Not offered for this age group</td>
+        <td><button class="sw-action-btn" title="Delete row"
+          onclick="deleteQTRow('${prefix}','${escAttr(r.gender)}','${escAttr(r.course)}','${escAttr(r.event)}','${escAttr(r.age)}')">🗑️</button></td>
+      </tr>`;
+    }
+    const qv   = r.qualify  != null ? secToTime(r.qualify)  : '';
+    const cv   = r.consider != null ? secToTime(r.consider) : '';
+    // Flag visually if values are inverted (data quality warning)
+    const inverted = r.qualify != null && r.consider != null && r.consider < r.qualify;
+    const invClass = inverted ? ' inverted' : '';
+    const invTitle = inverted ? ' ⚠️ Consider time is faster than Qualify — please review' : '';
+    return `<tr>
+      <td><span class="badge ${r.gender === 'Boys' ? 'S' : 'L'}">${r.gender}</span></td>
+      <td><span class="badge ${r.course === 'Short Course' ? 'S' : 'L'}">${r.course === 'Short Course' ? 'SC' : 'LC'}</span></td>
+      <td style="font-weight:600;color:var(--text)">${r.event}</td>
+      <td>
+        <input type="text" class="qt-inline-input${invClass}" value="${qv}"
+          placeholder="e.g. 34.50" title="Qualifying time — format: 1:05.32 or 34.50${invTitle}"
+          onblur="saveQTEdit('${prefix}','${escAttr(r.gender)}','${escAttr(r.course)}','${escAttr(r.event)}','${escAttr(r.age)}','qualify',this.value)">
+      </td>
+      <td>
+        <input type="text" class="qt-inline-input${invClass}" value="${cv}"
+          placeholder="e.g. 38.00" title="Consideration time — format: 1:05.32 or 38.00${invTitle}"
+          onblur="saveQTEdit('${prefix}','${escAttr(r.gender)}','${escAttr(r.course)}','${escAttr(r.event)}','${escAttr(r.age)}','consider',this.value)">
+      </td>
+      <td><button class="sw-action-btn" title="Delete row"
+        onclick="deleteQTRow('${prefix}','${escAttr(r.gender)}','${escAttr(r.course)}','${escAttr(r.event)}','${escAttr(r.age)}')">🗑️</button></td>
+    </tr>`;
+  }).join('');
+
+  contentEl.innerHTML = `
+    <div class="tbl-wrap">
+      <table class="swimmer-tbl">
+        <thead><tr>
+          <th>Gender</th><th>Course</th><th>Event</th>
+          <th>Qualify Time</th><th>Consider Time</th><th style="cursor:default;color:var(--text3)">Del</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+    <div class="note" style="margin-top:10px">
+      ${filtered.length} row${filtered.length !== 1 ? 's' : ''} · Age Group ${age} · Times in seconds · Changes save on input blur.
+      ${filtered.some(r => r.qualify != null && r.consider != null && r.consider < r.qualify)
+        ? '<span style="color:var(--gold);margin-left:8px">⚠️ Some rows have inverted times (consider &lt; qualify) — hover the amber-bordered cells for details.</span>' : ''}
+    </div>`;
+}
+
+function saveQTEdit(prefix, gender, course, event, age, field, value) {
+  const arr = prefix === 'county' ? COUNTY_QT : REGIONAL_QT;
+  const row = arr.find(r =>
+    r.gender === gender && r.course === course && r.event === event && r.age === age
+  );
+  if (!row) return;
+  const trimmed = value.trim();
+  if (!trimmed) { row[field] = null; saveQTToStorage(prefix); return; }
+  if (!/^(\d{1,2}:)?\d{1,2}\.\d{2}$/.test(trimmed)) {
+    // Invalid format — restore previous value by re-rendering
+    renderQTEditor(prefix); return;
+  }
+  const sec = timeToSec(trimmed);
+  row[field] = isFinite(sec) ? parseFloat(sec.toFixed(2)) : null;
+  saveQTToStorage(prefix);
+}
+
+function deleteQTRow(prefix, gender, course, event, age) {
+  if (!confirm(`Delete: ${gender} / ${course} / ${event} / Age ${age}?
+This cannot be undone.`)) return;
+  if (prefix === 'county') {
+    COUNTY_QT = COUNTY_QT.filter(r =>
+      !(r.gender === gender && r.course === course && r.event === event && r.age === age));
+  } else {
+    REGIONAL_QT = REGIONAL_QT.filter(r =>
+      !(r.gender === gender && r.course === course && r.event === event && r.age === age));
+  }
+  saveQTToStorage(prefix);
+  renderQTEditor(prefix);
+}
+
+// ============================================================
+// QT EDITOR — add new row
+// ============================================================
+function addQTRow(prefix) {
+  const isCounty = prefix === 'county';
+  const p        = isCounty ? 'ce' : 're';
+  const age      = document.getElementById(p + 'Age').value;
+  if (!age) { alert('Please select an Age Group first.'); return; }
+
+  const existing = document.getElementById(prefix + 'AddRow');
+  if (existing) { existing.querySelector('select,input')?.focus(); return; }
+
+  const ageGroups = isCounty
+    ? ['10+11','12','13','14','15','16','17+']
+    : ['11/12','13','14','15','16','17','18+'];
+
+  const evOptions = ALL_EVENTS.map(e => `<option value="${e}">${e}</option>`).join('');
+
+  const formHtml = `<div id="${prefix}AddRow" class="comp-meta-edit-form" style="margin-bottom:14px;border:2px dashed var(--accent)">
+    <div style="font-weight:600;color:var(--text);margin-bottom:12px;font-size:0.85rem">＋ New QT Row — Age Group ${age}</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr 110px 110px auto;gap:10px;align-items:end">
+      <div class="fg">
+        <span class="fl">Gender</span>
+        <select id="${prefix}NewGender" class="form-input" style="min-width:0">
+          <option value="Boys">Boys</option><option value="Girls">Girls</option>
+        </select>
+      </div>
+      <div class="fg">
+        <span class="fl">Course</span>
+        <select id="${prefix}NewCourse" class="form-input" style="min-width:0">
+          <option value="Short Course">Short Course</option>
+          <option value="Long Course">Long Course</option>
+        </select>
+      </div>
+      <div class="fg">
+        <span class="fl">Event</span>
+        <select id="${prefix}NewEvent" class="form-input" style="min-width:0">${evOptions}</select>
+      </div>
+      <div class="fg">
+        <span class="fl">Qualify Time</span>
+        <input type="text" id="${prefix}NewQualify" class="form-input" placeholder="e.g. 34.50" style="min-width:0">
+      </div>
+      <div class="fg">
+        <span class="fl">Consider Time</span>
+        <input type="text" id="${prefix}NewConsider" class="form-input" placeholder="e.g. 38.00" style="min-width:0">
+      </div>
+      <div style="display:flex;gap:6px;align-self:flex-end">
+        <button class="btn primary" onclick="saveNewQTRow('${prefix}','${age}')">Save</button>
+        <button class="btn sec" onclick="document.getElementById('${prefix}AddRow').remove()">✕</button>
+      </div>
+    </div>
+    <div id="${prefix}AddError" style="display:none;color:var(--red);font-size:0.78rem;margin-top:8px;padding:6px 8px;background:rgba(220,38,38,0.08);border-radius:6px"></div>
+  </div>`;
+
+  const contentEl = document.getElementById(prefix + 'EditorContent');
+  contentEl.insertAdjacentHTML('afterbegin', formHtml);
+  document.getElementById(prefix + 'NewQualify').focus();
+}
+
+function saveNewQTRow(prefix, age) {
+  const gender   = document.getElementById(prefix + 'NewGender').value;
+  const course   = document.getElementById(prefix + 'NewCourse').value;
+  const event    = document.getElementById(prefix + 'NewEvent').value;
+  const qRaw     = document.getElementById(prefix + 'NewQualify').value.trim();
+  const cRaw     = document.getElementById(prefix + 'NewConsider').value.trim();
+  const errEl    = document.getElementById(prefix + 'AddError');
+  errEl.style.display = 'none';
+
+  const timeFmt = /^(\d{1,2}:)?\d{1,2}\.\d{2}$/;
+  if (!timeFmt.test(qRaw)) { errEl.textContent = 'Invalid qualify time — use format 1:05.32 or 34.50.';    errEl.style.display = 'block'; return; }
+  if (!timeFmt.test(cRaw)) { errEl.textContent = 'Invalid consider time — use format 1:05.32 or 34.50.'; errEl.style.display = 'block'; return; }
+  const qualify  = timeToSec(qRaw);
+  const consider = timeToSec(cRaw);
+  if (!isFinite(qualify))  { errEl.textContent = 'Invalid qualifying time.';    errEl.style.display = 'block'; return; }
+  if (!isFinite(consider)) { errEl.textContent = 'Invalid consideration time.'; errEl.style.display = 'block'; return; }
+  if (consider <= qualify) {
+    const ok = confirm('⚠️ Consider time is the same or faster than Qualify time — this looks inverted. Save anyway?');
+    if (!ok) return;
+  }
+
+  const arr = prefix === 'county' ? COUNTY_QT : REGIONAL_QT;
+  const dupe = arr.some(r => r.gender === gender && r.course === course && r.event === event && r.age === age);
+  if (dupe) {
+    errEl.textContent = `A row for ${gender} / ${course} / ${event} / Age ${age} already exists. Edit the existing row instead.`;
+    errEl.style.display = 'block';
+    return;
+  }
+
+  arr.push({ gender, course, event, age,
+    qualify: parseFloat(qualify.toFixed(2)), consider: parseFloat(consider.toFixed(2)) });
+  saveQTToStorage(prefix);
+  document.getElementById(prefix + 'AddRow').remove();
+  renderQTEditor(prefix);
+}
+
+// ============================================================
+// QT EDITOR — download JSON (new wrapped format)
+// ============================================================
+function downloadQTData(prefix) {
+  const meta  = prefix === 'county' ? COUNTY_QT_META   : REGIONAL_QT_META;
+  const times = prefix === 'county' ? COUNTY_QT        : REGIONAL_QT;
+  const json  = JSON.stringify({ meta, times }, null, 2);
+  const blob  = new Blob([json], { type: 'application/json' });
+  const url   = URL.createObjectURL(blob);
+  const a     = document.createElement('a');
+  a.href = url;
+  a.download = prefix === 'county' ? 'county_qt.json' : 'regional_qt.json';
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+// ============================================================
+// SAMPLE DATA
+// ============================================================
+function loadSampleData() {
+  SWIMMERS = [
+    { id:'sw_001', name:'Alex Smith',      dob:'2012-04-15', gender:'Boys', squad:'Junior', pbs:[
+      { event:'100 Back',  course:'S', time:'1:22.80', date:'2025-11-15', competition:'Watford SC County Qualifier 2025' },
+      { event:'200 Back',  course:'S', time:'2:55.68', date:'2025-11-15', competition:'Watford SC County Qualifier 2025' },
+      { event:'50 Back',   course:'S', time:'36.10',   date:'2025-10-20' },
+      { event:'100 Free',  course:'S', time:'1:11.20', date:'2025-09-08' },
+      { event:'200 Free',  course:'S', time:'2:35.40', date:'2025-09-08' },
+    ]},
+    { id:'sw_002', name:'Priya Patel',     dob:'2011-09-22', gender:'Girls', squad:'Senior', pbs:[
+      { event:'50 Free',   course:'S', time:'30.90',   date:'2025-11-01' },
+      { event:'100 Free',  course:'S', time:'1:07.50', date:'2025-10-15' },
+      { event:'50 Back',   course:'S', time:'34.80',   date:'2025-10-15' },
+      { event:'100 Back',  course:'L', time:'1:18.20', date:'2025-09-20' },
+    ]},
+    { id:'sw_003', name:'Jamie Chen',      dob:'2013-02-08', gender:'Boys', squad:'Development', pbs:[
+      { event:'100 Breast',course:'S', time:'1:30.10', date:'2025-10-12' },
+      { event:'200 Breast',course:'S', time:'3:12.40', date:'2025-10-12' },
+      { event:'200 IM',    course:'S', time:'2:58.30', date:'2025-11-02' },
+    ]},
+    { id:'sw_004', name:'Sophia Williams', dob:'2010-07-30', gender:'Girls', squad:'Active', pbs:[
+      { event:'50 Fly',    course:'S', time:'32.50',   date:'2025-11-08' },
+      { event:'100 Fly',   course:'S', time:'1:12.40', date:'2025-11-08' },
+      { event:'200 IM',    course:'S', time:'2:39.20', date:'2025-10-22' },
+      { event:'400 IM',    course:'S', time:'5:28.80', date:'2025-09-15' },
+    ]},
+    { id:'sw_005', name:'Oliver Nguyen',   dob:'2012-11-14', gender:'Boys', squad:'Junior', pbs:[
+      { event:'50 Free',   course:'S', time:'31.20',   date:'2025-11-10' },
+      { event:'100 Free',  course:'S', time:'1:08.40', date:'2025-11-10' },
+      { event:'50 Fly',    course:'S', time:'34.50',   date:'2025-10-05' },
+    ]},
+    { id:'sw_006', name:'Mia Thompson',    dob:'2013-05-19', gender:'Girls', squad:'Development', pbs:[
+      { event:'200 Free',  course:'S', time:'2:42.10', date:'2025-10-18' },
+      { event:'400 Free',  course:'S', time:'5:38.20', date:'2025-10-18' },
+      { event:'100 Free',  course:'L', time:'1:12.30', date:'2025-08-25' },
+    ]},
+  ];
+  // COUNTY_QT and REGIONAL_QT already populated from localStorage on module init
+}
+
+// ============================================================
+// FAB
+// ============================================================
+let fabOpen = false;
+function toggleFab()  { fabOpen ? closeFab() : openFab(); }
+function openFab()    { fabOpen=true;  document.getElementById('fabBackdrop').classList.add('open'); document.getElementById('fabChildren').classList.add('open'); document.getElementById('fabParent').classList.add('open'); }
+function closeFab()   { fabOpen=false; document.getElementById('fabBackdrop').classList.remove('open'); document.getElementById('fabChildren').classList.remove('open'); document.getElementById('fabParent').classList.remove('open'); }
+function fabToggleTheme()      { closeFab(); toggleTheme(); }
+function fabShowDataModal()    { closeFab(); showDataModal(); }
+function fabShowAddSwimmer()   { closeFab(); showAddSwimmerModal(); }
+function fabShowSyncModal()    { closeFab(); showSyncModal(); }
+function fabShowSettingsModal(){ closeFab(); showSettingsModal(); }
+function fabShowSyncModal()  { closeFab(); showSyncModal(); }
+
+// ============================================================
+// KEYBOARD
+// ============================================================
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  closeFab(); hideDataModal(); hideAddSwimmerModal(); hideSyncModal(); hideSettingsModal();
+  editingSwimmerId = null;
+  cancelMetaEdit('county'); cancelMetaEdit('regional');
+});
+
+// ============================================================
+// LOGO (base64 embedded — no external dependency)
+const LOGO_DATA_URI = 'data:image/png;base64,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';
+
+// ============================================================
+// INIT
+// ============================================================
+window.addEventListener('DOMContentLoaded', () => {
+  // Set embedded logo (base64 data URI defined below)
+  const logoEl = document.getElementById('headerLogo');
+  if (logoEl) logoEl.src = LOGO_DATA_URI;
+  // Sync theme icon
+  const fabTheme = document.getElementById('fabThemeBtn');
+  if (fabTheme && document.body.classList.contains('dark')) fabTheme.textContent = '☀️';
+  // Restore last sync timestamp display
+  const lastSync = localStorage.getItem('coach_SHEETS_LAST_SYNC');
+  if (lastSync) {
+    document.querySelectorAll('#syncLastTime').forEach(el => {
+      el.textContent = new Date(lastSync).toLocaleString();
+    });
+  }
+  // Pre-fill sync token from localStorage
+  const savedToken = localStorage.getItem('coach_SYNC_TOKEN') || '';
+  const tokenInput = document.getElementById('syncTokenInput');
+  if (tokenInput && savedToken) tokenInput.value = savedToken;
+  // Render county on load; regional + editors render lazily on first tab switch
+  updateMetaDisplay('county');
+  updateMetaDisplay('regional');
+  renderCounty();
+});
+
+// ============================================================
+// GOOGLE SHEETS SYNC
+// ============================================================
+// ── Utility: convert time string "mm:ss.hh" or "ss.hh" to seconds ──
+function syncTimeToSec(t) {
+  if (!t) return Infinity;
+  const p = String(t).split(':');
+  return p.length === 2 ? parseInt(p[0]) * 60 + parseFloat(p[1]) : parseFloat(p[0]);
+}
+
+// ── Auto-close timer handle ───────────────────────────────────
+let _syncCloseTimer = null;
+
+// ── Modal show/hide ──────────────────────────────────────────
+function showSyncModal() {
+  const savedUrl  = localStorage.getItem('coach_SYNC_URL') || SHEETS_SYNC_URL || '';
+  const urlWarn   = document.getElementById('syncUrlWarning');
+  if (urlWarn) urlWarn.style.display = savedUrl ? 'none' : 'block';
+  const savedToken = localStorage.getItem('coach_SYNC_TOKEN') || '';
+  const tokenInput = document.getElementById('syncTokenInput');
+  if (tokenInput && savedToken) tokenInput.value = savedToken;
+  const statusEl = document.getElementById('syncStatus');
+  if (statusEl) { statusEl.style.display = 'none'; statusEl.className = ''; statusEl.textContent = ''; }
+  if (_syncCloseTimer) { clearInterval(_syncCloseTimer); _syncCloseTimer = null; }
+  document.getElementById('syncModal').classList.add('open');
+}
+function hideSyncModal() {
+  if (_syncCloseTimer) { clearInterval(_syncCloseTimer); _syncCloseTimer = null; }
+  document.getElementById('syncModal').classList.remove('open');
+}
+function toggleTokenVisibility() {
+  const input = document.getElementById('syncTokenInput');
+  if (input) input.type = input.type === 'password' ? 'text' : 'password';
+}
+
+// ── Settings modal ────────────────────────────────────────────
+function showSettingsModal() {
+  const urlInput   = document.getElementById('settingsSyncUrl');
+  const tokenInput = document.getElementById('settingsToken');
+  if (urlInput)   urlInput.value   = localStorage.getItem('coach_SYNC_URL')   || SHEETS_SYNC_URL || '';
+  if (tokenInput) tokenInput.value = localStorage.getItem('coach_SYNC_TOKEN') || '';
+  document.getElementById('settingsModal').classList.add('open');
+}
+function hideSettingsModal() {
+  document.getElementById('settingsModal').classList.remove('open');
+}
+function toggleSettingsTokenVisibility() {
+  const input = document.getElementById('settingsToken');
+  if (input) input.type = input.type === 'password' ? 'text' : 'password';
+}
+function saveSettings() {
+  const url   = (document.getElementById('settingsSyncUrl')?.value  || '').trim();
+  const token = (document.getElementById('settingsToken')?.value    || '').trim();
+  if (url)   localStorage.setItem('coach_SYNC_URL',   url);
+  else       localStorage.removeItem('coach_SYNC_URL');
+  if (token) localStorage.setItem('coach_SYNC_TOKEN', token);
+  else       localStorage.removeItem('coach_SYNC_TOKEN');
+  hideSettingsModal();
+  const syncTokenInput = document.getElementById('syncTokenInput');
+  if (syncTokenInput && token) syncTokenInput.value = token;
+}
+
+// ── Main sync function ───────────────────────────────────────
+async function startSync() {
+  const syncUrl = (localStorage.getItem('coach_SYNC_URL') || SHEETS_SYNC_URL || '').trim();
+  if (!syncUrl) {
+    setSyncStatus('error', '⚠️ No Apps Script URL configured. Open ⚙️ Settings and paste your Web App URL.');
+    return;
+  }
+  const token = (document.getElementById('syncTokenInput')?.value || '').trim();
+  if (!token) {
+    setSyncStatus('error', '⚠️ Please enter your sync token.');
+    return;
+  }
+  localStorage.setItem('coach_SYNC_TOKEN', token);
+
+  const btn     = document.getElementById('syncBtn');
+  const spinner = document.getElementById('syncSpinner');
+  if (btn) btn.disabled = true;
+  if (spinner) spinner.style.display = 'inline';
+  setSyncStatus('info', '⏳ Connecting to Google Sheets…');
+
+  try {
+    const url      = `${syncUrl}?token=${encodeURIComponent(token)}`;
+    const response = await fetch(url, { method: 'GET', credentials: 'omit' });
+
+    if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+
+    const data = await response.json();
+    if (data.error) throw new Error(data.message || 'Apps Script returned an error.');
+
+    // Unwrap payload wrapper {version, generated, count, swimmers:[]}
+    const sheetSwimmers = Array.isArray(data) ? data
+                        : (data.swimmers && Array.isArray(data.swimmers)) ? data.swimmers
+                        : null;
+    if (!sheetSwimmers) throw new Error('Unexpected data format from Apps Script.');
+
+    // Merge into SWIMMERS using the correct function (updates SWIMMERS in place)
+    const mergeMode = document.getElementById('syncMergeMode')?.value || 'keep';
+    const result    = mergeSwimmers(sheetSwimmers, mergeMode);
+
+    // Persist to the correct localStorage key
+    localStorage.setItem('coach_SWIMMERS', JSON.stringify(SWIMMERS));
+    localStorage.setItem('coach_SHEETS_LAST_SYNC', new Date().toISOString());
+    checkLocalStorageSize();
+
+    const lastSyncEl = document.getElementById('syncLastTime');
+    if (lastSyncEl) lastSyncEl.textContent = new Date().toLocaleString();
+
+    // Build contextual success message
+    const noQT = COUNTY_QT.length === 0 && REGIONAL_QT.length === 0;
+    const qtNote = noQT
+      ? ' · ⚠️ No QT data loaded yet — use 📤 Load Data to upload county_qt.json and regional_qt.json to see qualifying comparisons.'
+      : '';
+    setSyncStatus('success',
+      `✅ ${sheetSwimmers.length} swimmers synced — ` +
+      `${result.added} added, ${result.updated} updated` +
+      (result.kept   ? `, ${result.kept} local kept`    : '') +
+      (result.hidden ? `, ${result.hidden} hidden`       : '') +
+      (result.removed? `, ${result.removed} removed`    : '') +
+      `.${qtNote}`
+    );
+
+    // Re-render in place — no page reload needed
+    renderCounty();
+    renderRegional();
+
+    // Auto-close after 2.5 s on success (with countdown in close button)
+    const closeBtn = document.querySelector('#syncModal .modal-close');
+    let remaining  = 3;
+    if (closeBtn) closeBtn.textContent = `✕ (${remaining})`;
+    _syncCloseTimer = setInterval(() => {
+      remaining--;
+      if (closeBtn) {
+        if (remaining > 0) closeBtn.textContent = `✕ (${remaining})`;
+        else closeBtn.textContent = '✕';
+      }
+      if (remaining <= 0) {
+        clearInterval(_syncCloseTimer);
+        _syncCloseTimer = null;
+        hideSyncModal();
+        if (closeBtn) closeBtn.textContent = '✕';
+      }
+    }, 1000);
+
+  } catch (err) {
+    console.error('Sheets sync error:', err);
+    setSyncStatus('error', '❌ ' + err.message);
+  } finally {
+    if (btn) btn.disabled = false;
+    if (spinner) spinner.style.display = 'none';
+  }
+}
+
+// ── Merge logic ──────────────────────────────────────────────
+// Merges Sheet swimmers into the local SWIMMERS array.
+// Matching: name (case-insensitive) + dob.
+// mergeMode: 'keep' | 'hide' | 'remove' — controls local-only swimmers.
+function mergeSwimmers(sheetSwimmers, mergeMode) {
+  const stats    = { added: 0, updated: 0, kept: 0, hidden: 0, removed: 0 };
+  const localKey = sw => `${(sw.name || '').toLowerCase().trim()}|${sw.dob}`;
+  const localMap = {};
+  SWIMMERS.forEach(sw => { localMap[localKey(sw)] = sw; });
+  const sheetMap = {};
+  sheetSwimmers.forEach(sw => { sheetMap[localKey(sw)] = sw; });
+  const merged   = [];
+
+  // 1. All Sheet swimmers — always included
+  sheetSwimmers.forEach(sheetSw => {
+    const key      = localKey(sheetSw);
+    const existing = localMap[key];
+    if (existing) {
+      merged.push({
+        ...existing,
+        name:   sheetSw.name,
+        dob:    sheetSw.dob,
+        gender: sheetSw.gender,
+        squad:  sheetSw.squad || existing.squad,
+        source: 'sheet',
+        hidden: false,
+        pbs:    mergePbs(existing.pbs || [], sheetSw.pbs || []),
+      });
+      stats.updated++;
+    } else {
+      merged.push({ ...sheetSw, hidden: false });
+      stats.added++;
+    }
+  });
+
+  // 2. Local-only swimmers (not in Sheet)
+  SWIMMERS.forEach(localSw => {
+    if (localSw.source === 'sheet') return;
+    const key = localKey(localSw);
+    if (sheetMap[key]) return;
+    if (mergeMode === 'remove') {
+      stats.removed++;
+    } else if (mergeMode === 'hide') {
+      merged.push({ ...localSw, source: 'local', hidden: true });
+      stats.hidden++;
+    } else {
+      merged.push({ ...localSw, source: 'local', hidden: false });
+      stats.kept++;
+    }
+  });
+
+  merged.sort((a, b) => a.name.localeCompare(b.name));
+  SWIMMERS = merged;
+  return stats;
+}
+
+// ── PB merge ─────────────────────────────────────────────────
+function mergePbs(localPbs, sheetPbs) {
+  const pbMap = {};
+  localPbs.forEach(pb => { pbMap[`${pb.event}|${pb.course}`] = { ...pb }; });
+  sheetPbs.forEach(pb => {
+    const key      = `${pb.event}|${pb.course}`;
+    const existing = pbMap[key];
+    const newSec   = syncTimeToSec(pb.time);
+    const oldSec   = existing ? syncTimeToSec(existing.time) : Infinity;
+    if (!existing || newSec <= oldSec) {
+      pbMap[key] = {
+        ...pb,
+        competition: (existing && existing.competition) ? existing.competition : pb.competition,
+      };
+    }
+  });
+  return Object.values(pbMap);
+}
+
+// ── Status helper ─────────────────────────────────────────────
+function setSyncStatus(type, msg) {
+  const el = document.getElementById('syncStatus');
+  if (!el) return;
+  el.style.display = 'block';
+  el.className     = `sync-${type}`;
+  el.style.padding = '10px 12px';
+  el.style.borderRadius = '8px';
+  el.style.marginBottom = '14px';
+  el.style.lineHeight   = '1.6';
+  el.style.fontSize     = '0.78rem';
+  el.textContent = msg;
+}
+
+
+
+</script>
+</body>
+</html>
