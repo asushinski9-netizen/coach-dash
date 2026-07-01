@@ -150,6 +150,7 @@ select:focus { border-color: var(--accent); }
   transition: border-color 0.15s, color 0.15s;
 }
 .fbtn:hover { border-color: var(--accent); color: var(--accent); }
+.fbtn:disabled, .fbtn:disabled:hover { opacity: 0.4; cursor: not-allowed; border-color: var(--border); color: var(--text3); }
 .fbtn.reset { font-weight: 700; }
 
 /* No PB toggle */
@@ -186,7 +187,6 @@ select:focus { border-color: var(--accent); }
   display: flex; align-items: center; justify-content: center;
   font-weight: 700; font-size: 0.75rem; flex-shrink: 0;
 }
-.swimmer-name { font-weight: 600; font-size: 0.90rem; color: var(--text); }
 .swimmer-badges { margin-left: auto; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
 .chevron { font-size: 0.72rem; color: var(--text3); transition: transform 0.2s; margin-left: 2px; flex-shrink: 0; }
 .swimmer-card.collapsed .chevron { transform: rotate(-90deg); }
@@ -286,6 +286,15 @@ table.swimmer-tbl tr:hover td { background: var(--surface2); }
 .pb-event-row { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; position: relative; }
 .pb-event-row .remove-evt { position: absolute; top: 8px; right: 8px; background: none; border: none; color: var(--red); cursor: pointer; font-size: 1rem; }
 .pb-top-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+
+/* ── DATA MODAL — per-source cards (sync / upload / download) ── */
+.data-card {
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 10px; padding: 12px 14px; margin-bottom: 12px;
+}
+.data-card-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.data-card-title { font-size: 0.85rem; font-weight: 700; color: var(--text); }
+.data-card-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 
 /* ── SWIMMER ACTIONS (edit / delete on card header) ─────── */
 .swimmer-actions { display: flex; gap: 2px; align-items: center; margin-left: 6px; }
@@ -397,7 +406,6 @@ table.swimmer-tbl tr:hover td { background: var(--surface2); }
 .fab-child-row:nth-child(2) { transition-delay: 0.05s; }
 .fab-child-row:nth-child(3) { transition-delay: 0.10s; }
 .fab-child-row:nth-child(4) { transition-delay: 0.15s; }
-.fab-child-row:nth-child(5) { transition-delay: 0.20s; }
 .fab-children.open { pointer-events: auto; }
 .fab-children.open .fab-child-row { opacity: 1; transform: translateY(0); }
 .fab-child {
@@ -454,8 +462,6 @@ table.swimmer-tbl tr:hover td { background: var(--surface2); }
   /* Reset button spans full width */
   .fg.reset-fg { grid-column: 1 / span 2; }
   .fbtn.reset { width: 100%; text-align: center; height: 36px; font-size: 0.8rem; }
-  /* No PB toggle spans full width, appears below reset */
-  .fg.nopb-fg { grid-column: 1 / span 2; }
 
   /* Info banner */
   .info-banner { font-size: 0.70rem; }
@@ -849,32 +855,100 @@ table.swimmer-tbl tr:hover td { background: var(--surface2); }
 
 <!-- ══ LOAD DATA MODAL ════════════════════════════════════════ -->
 <div class="modal-overlay" id="dataModal">
-  <div class="modal-box">
+  <div class="modal-box" style="max-width:620px">
     <div class="modal-title">
-      📤 Load Data Files
+      📤 Manage Data
       <button class="modal-close" onclick="hideDataModal()">✕</button>
     </div>
-    <div class="form-row">
-      <label class="form-label">Swimmers &amp; PBs (swimmers_pb.json)</label>
-      <input type="file" id="fileSwimmers" accept=".json" class="form-input">
+    <p style="font-size:0.78rem;color:var(--text3);margin-bottom:16px;line-height:1.5">
+      Sync pulls the latest data automatically. Manual upload is for one-off files —
+      use it if you've got a JSON export from another device or a one-time correction.
+    </p>
+
+    <!-- ── SWIMMERS & PBs ───────────────────────────────────── -->
+    <div class="data-card">
+      <div class="data-card-head">
+        <div class="data-card-title">🏊 Swimmers &amp; PBs</div>
+        <span class="note" id="dataSwimmersCount" style="margin:0"></span>
+      </div>
+      <div class="data-card-row">
+        <button class="btn primary" onclick="closeFab();showSyncModal()">🔄 Sync from Google Sheet</button>
+        <span class="note" style="margin:0">Last synced: <span id="syncLastTimeInline">Never</span></span>
+      </div>
+      <div id="dataSwimmersHint" style="display:none;font-size:0.74rem;color:var(--gold);margin-top:8px;line-height:1.5"></div>
+      <div class="data-card-row" style="margin-top:10px">
+        <input type="file" id="fileSwimmers" accept=".json" class="form-input" style="flex:1;min-width:0">
+        <button class="fbtn" onclick="loadSwimmersFile()">Upload</button>
+      </div>
+      <div class="data-card-row" style="margin-top:8px">
+        <button class="fbtn" id="dataSwimmersDownloadBtn" onclick="downloadSwimmers()" title="Export current swimmer data">⬇ Download</button>
+        <button class="fbtn" id="dataSwimmersClearBtn" style="color:var(--red)" onclick="clearData('swimmers')" title="Remove all swimmers from this browser">🗑 Clear</button>
+      </div>
     </div>
-    <div class="form-row">
-      <label class="form-label">County QT Data (county_qt.json)</label>
-      <input type="file" id="fileCountyQT" accept=".json" class="form-input">
+
+    <!-- ── COUNTY QT ────────────────────────────────────────── -->
+    <div class="data-card">
+      <div class="data-card-head">
+        <div class="data-card-title">🎯 County QT Data</div>
+        <span class="note" id="dataCountyCount" style="margin:0"></span>
+      </div>
+      <div class="data-card-row">
+        <button class="btn primary" onclick="syncQTFromGitHub('county')">🔄 Sync from GitHub</button>
+        <span class="note" style="margin:0">Last synced: <span id="countyQtLastSyncInline">Never</span></span>
+      </div>
+      <div id="dataCountyHint" style="display:none;font-size:0.74rem;color:var(--gold);margin-top:8px;line-height:1.5"></div>
+      <div class="data-card-row" style="margin-top:10px">
+        <input type="file" id="fileCountyQT" accept=".json" class="form-input" style="flex:1;min-width:0">
+        <button class="fbtn" onclick="loadQTFile('county')">Upload</button>
+      </div>
+      <div class="data-card-row" style="margin-top:8px">
+        <button class="fbtn" id="dataCountyDownloadBtn" onclick="downloadQTData('county')" title="Export current county QT data">⬇ Download</button>
+        <button class="fbtn" id="dataCountyClearBtn" style="color:var(--red)" onclick="clearData('county')" title="Remove County QT data from this browser">🗑 Clear</button>
+      </div>
     </div>
-    <div class="form-row">
-      <label class="form-label">Regional QT Data (regional_qt.json)</label>
-      <input type="file" id="fileRegionalQT" accept=".json" class="form-input">
+
+    <!-- ── REGIONAL QT ──────────────────────────────────────── -->
+    <div class="data-card">
+      <div class="data-card-head">
+        <div class="data-card-title">🏅 Regional QT Data</div>
+        <span class="note" id="dataRegionalCount" style="margin:0"></span>
+      </div>
+      <div class="data-card-row">
+        <button class="btn primary" onclick="syncQTFromGitHub('regional')">🔄 Sync from GitHub</button>
+        <span class="note" style="margin:0">Last synced: <span id="regionalQtLastSyncInline">Never</span></span>
+      </div>
+      <div id="dataRegionalHint" style="display:none;font-size:0.74rem;color:var(--gold);margin-top:8px;line-height:1.5"></div>
+      <div class="data-card-row" style="margin-top:10px">
+        <input type="file" id="fileRegionalQT" accept=".json" class="form-input" style="flex:1;min-width:0">
+        <button class="fbtn" onclick="loadQTFile('regional')">Upload</button>
+      </div>
+      <div class="data-card-row" style="margin-top:8px">
+        <button class="fbtn" id="dataRegionalDownloadBtn" onclick="downloadQTData('regional')" title="Export current regional QT data">⬇ Download</button>
+        <button class="fbtn" id="dataRegionalClearBtn" style="color:var(--red)" onclick="clearData('regional')" title="Remove Regional QT data from this browser">🗑 Clear</button>
+      </div>
     </div>
+
+    <div id="dataStatus" style="display:none;font-size:0.78rem;padding:10px 12px;border-radius:8px;margin-top:4px;margin-bottom:10px;line-height:1.6"></div>
     <div id="dataError" style="display:none;color:var(--red);font-size:0.78rem;margin-bottom:12px;padding:8px 10px;background:rgba(220,38,38,0.08);border-radius:6px;"></div>
-    <div style="display:flex;gap:10px;margin-top:18px;flex-wrap:wrap">
-      <button class="btn sec" onclick="hideDataModal()">Cancel</button>
-      <button class="btn primary" onclick="loadDataFiles()">💾 Load Files</button>
-      <button class="btn sec" onclick="downloadSwimmers()" style="margin-left:auto" title="Export current swimmer data for use on another device">⬇ Download Swimmers PBs</button>
+
+    <!-- ── CONFLICT RESOLUTION (shown when an uploaded file collides with existing data) ── -->
+    <div id="dataConflictBox" style="display:none;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:12px">
+      <div id="dataConflictMsg" style="font-size:0.8rem;color:var(--text);margin-bottom:10px;line-height:1.5"></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn sec" onclick="cancelDataConflict()">Cancel</button>
+        <button class="btn sec" onclick="resolveDataConflict('replace')">🔁 Replace</button>
+        <button class="btn sec" id="dataConflictMergeBtn" onclick="resolveDataConflict('merge')" style="display:none">🔀 Merge — add new only</button>
+        <button class="btn primary" id="dataConflictMergeOverwriteBtn" onclick="resolveDataConflict('merge-overwrite')" style="display:none">🔀 Merge — overwrite matching</button>
+      </div>
     </div>
-    <div class="note" style="margin-top:10px">Data stored in browser localStorage. Use ⬇ Download to transfer to another device.</div>
+
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
+      <button class="fbtn" id="dataClearAllBtn" style="color:var(--red);border-color:rgba(220,38,38,0.3)" onclick="clearData('all')" title="Remove swimmers, County QT, and Regional QT data from this browser">🗑 Clear All Data</button>
+      <button class="btn sec" onclick="hideDataModal()">Close</button>
+    </div>
   </div>
 </div>
+
 
 <!-- ══ ADD SWIMMER MODAL ══════════════════════════════════════ -->
 <div class="modal-overlay" id="addSwimmerModal">
@@ -929,43 +1003,6 @@ table.swimmer-tbl tr:hover td { background: var(--surface2); }
   </div>
 </div>
 
-<!-- ══ SYNC FROM SHEETS MODAL ════════════════════════════════ -->
-<div class="modal-overlay" id="syncModal">
-  <div class="modal-box" style="max-width:480px">
-    <div class="modal-title">
-      🔄 Sync from Google Sheets
-      <button class="modal-close" onclick="hideSyncModal()">✕</button>
-    </div>
-    <p style="font-size:0.82rem;color:var(--text2);margin-bottom:16px;line-height:1.6">
-      Fetches swimmer profiles and computes PBs directly from the Google Sheet.
-      Sheet swimmers are merged with any locally-added swimmers.
-      You must be signed into Google in this browser.
-    </p>
-    <div id="syncUrlWarning" style="display:none;background:rgba(220,38,38,0.08);border:1px solid rgba(220,38,38,0.2);border-radius:8px;padding:10px 12px;font-size:0.78rem;color:var(--red);margin-bottom:14px">
-      ⚠️ No Apps Script URL configured. Paste your Web App URL into
-      <code>SHEETS_SYNC_URL</code> in the dashboard's CONFIGURATION section.
-      See SETUP.md for instructions.
-    </div>
-    <div class="form-row" style="margin-bottom:14px">
-      <label class="form-label">Handling of local-only swimmers</label>
-      <select id="syncMergeMode" class="form-input">
-        <option value="keep">Keep local swimmers not in the Sheet</option>
-        <option value="hide">Hide local swimmers not in the Sheet</option>
-        <option value="remove">Remove local swimmers not in the Sheet</option>
-      </select>
-    </div>
-    <div id="syncStatus" style="display:none;font-size:0.78rem;padding:10px 12px;border-radius:8px;margin-bottom:14px;line-height:1.6"></div>
-    <div style="display:flex;gap:10px;margin-top:4px;flex-wrap:wrap;align-items:center">
-      <button class="btn sec" onclick="hideSyncModal()">Cancel</button>
-      <button class="btn primary" id="syncBtn" onclick="startSync()">🔄 Sync Now</button>
-      <span id="syncSpinner" style="display:none;font-size:0.78rem;color:var(--text3)">⏳ Fetching…</span>
-    </div>
-    <div class="note" style="margin-top:12px">
-      Last synced: <span id="syncLastTime">Never</span>
-    </div>
-  </div>
-</div>
-
 <!-- ══ SETTINGS MODAL ══════════════════════════════════════════ -->
 <div class="modal-overlay" id="settingsModal">
   <div class="modal-box" style="max-width:480px">
@@ -975,7 +1012,11 @@ table.swimmer-tbl tr:hover td { background: var(--surface2); }
     </div>
     <p style="font-size:0.82rem;color:var(--text2);margin-bottom:16px;line-height:1.6">
       Stored in your browser only — never embedded in the dashboard file.
-      Each coach enters their own credentials on their own device.
+      The URL and token are the same for everyone (one shared <code>ACCESS_TOKEN</code>
+      is set in the Apps Script project), so each coach just needs to paste the same
+      two values into their own browser once. This isn't per-coach login — anyone
+      with the token has the same access — it just keeps the token out of the
+      public HTML file.
     </p>
     <div class="form-row">
       <label class="form-label">Apps Script Web App URL</label>
@@ -1006,8 +1047,12 @@ table.swimmer-tbl tr:hover td { background: var(--surface2); }
       Fetches swimmer profiles and PBs from the Google Sheet. Credentials are read
       from Settings and stored only in this browser — not in the file.
     </p>
-    <div id="syncUrlWarning" style="display:none;background:rgba(220,38,38,0.08);border:1px solid rgba(220,38,38,0.2);border-radius:8px;padding:10px 12px;font-size:0.78rem;color:var(--red);margin-bottom:14px">
-      ⚠️ No Apps Script URL configured. Open ⚙️ Settings first.
+    <div id="syncUrlWarning" style="display:none;background:rgba(220,38,38,0.08);border:1px solid rgba(220,38,38,0.2);border-radius:8px;padding:10px 12px;font-size:0.78rem;color:var(--red);margin-bottom:10px">
+      ⚠️ No Apps Script URL configured yet — paste it below, or set it once in ⚙️ Settings.
+    </div>
+    <div class="form-row" id="syncUrlRow" style="display:none;margin-bottom:12px">
+      <label class="form-label">Apps Script Web App URL</label>
+      <input type="text" id="syncUrlInput" class="form-input" placeholder="https://script.google.com/macros/s/…/exec">
     </div>
     <div class="form-row" style="margin-bottom:12px">
       <label class="form-label">Sync Token <span style="color:var(--text3);font-weight:400;text-transform:none;font-size:0.68rem">(stored locally)</span></label>
@@ -1044,9 +1089,6 @@ table.swimmer-tbl tr:hover td { background: var(--surface2); }
       <button class="fab-child" onclick="fabShowAddSwimmer()" title="Add Swimmer">👤</button>
     </div>
     <div class="fab-child-row">
-      <button class="fab-child" onclick="fabShowSyncModal()" title="Sync from Google Sheets">🔄</button>
-    </div>
-    <div class="fab-child-row">
       <button class="fab-child" onclick="fabShowDataModal()" title="Load / Download Data">📤</button>
     </div>
     <div class="fab-child-row">
@@ -1061,14 +1103,20 @@ table.swimmer-tbl tr:hover td { background: var(--surface2); }
 
 <script>
 // ============================================================
-// CONFIGURATION — update championship dates here each season
+// CONFIGURATION
 // ============================================================
-const COUNTY_CHAMPS_DATE   = '2026-02-15'; // ← update each season
-const REGIONAL_CHAMPS_DATE = '2026-05-04'; // ← update each season
+// Championship dates are NOT hardcoded here. They come from QT metadata —
+// either entered manually via ✏️ Edit Details on the County/Regional QT Editor tab,
+// or populated automatically from the meta block of a synced/uploaded QT JSON file.
+// See getCountyChampsDate() / getRegionalChampsDate() below.
 
 // ← Paste your Apps Script Web App URL here after deployment (see SETUP.md)
 // ← Leave blank. Enter URL via ⚙️ Settings in the dashboard (stored in localStorage, not here).
 const SHEETS_SYNC_URL = '';
+
+// County & Regional QT standards — pulled fresh from GitHub via the Load Data modal.
+const QT_DATA_URL    = 'https://raw.githubusercontent.com/asushinski9-netizen/coach-dash/main/county_qt.json';
+const SE_QT_DATA_URL = 'https://raw.githubusercontent.com/asushinski9-netizen/coach-dash/main/regional_qt.json';
 
 const ALL_EVENTS = [
   '50 Free','100 Free','200 Free','400 Free','800 Free','1500 Free',
@@ -1137,8 +1185,6 @@ let REGIONAL_QT_META = _rFull.meta;
 let COUNTY_QT        = _cFull.times;
 let REGIONAL_QT      = _rFull.times;
 
-if (SWIMMERS.length === 0) loadSampleData();
-
 // Collapse-all state per tab
 const collapseAllState = { county: false, regional: false };
 
@@ -1177,14 +1223,24 @@ function getSeasonYear(champDateStr) {
     ? parseLocalDate(champDateStr).getFullYear() + 1
     : parseLocalDate(champDateStr).getFullYear();
 }
+// Championship date now comes from QT metadata (manually entered in the QT Editor, or
+// populated from the meta block of a synced/uploaded JSON file) — not a hardcoded constant.
+// Prefers dateTo (last day of the championships); falls back to dateFrom if only one is set.
+function getCountyChampsDate()    { return COUNTY_QT_META.dateTo || COUNTY_QT_META.dateFrom || ''; }
+function getRegionalChampsDate()  { return REGIONAL_QT_META.dateTo || REGIONAL_QT_META.dateFrom || ''; }
+
 function getCountyAgeBracket(dob) {
-  const age = getAgeAtEndOfYear(dob, getSeasonYear(COUNTY_CHAMPS_DATE));
+  const champDate = getCountyChampsDate();
+  if (!champDate) return null;
+  const age = getAgeAtEndOfYear(dob, getSeasonYear(champDate));
   if (age <= 11) return '10+11';
   if (age >= 17) return '17+';
   return String(age);
 }
 function getRegionalAgeBracket(dob) {
-  const age = getAgeAtEndOfYear(dob, getSeasonYear(REGIONAL_CHAMPS_DATE));
+  const champDate = getRegionalChampsDate();
+  if (!champDate) return null;
+  const age = getAgeAtEndOfYear(dob, getSeasonYear(champDate));
   if (age <= 12) return '11/12';
   if (age >= 18) return '18+';
   return String(age);
@@ -1267,7 +1323,7 @@ function buildProgressBar(pbSec, qualify, consider) {
   const rawCT = consider || qualify * 1.04;
   const rawQT = qualify  || consider * 0.97;
   // Normalise: ct must be the slower (larger) time, qt the faster (smaller).
-  // Guards against inverted source data (e.g. county_qt Girls/17+/SC/200 IM).
+  // Guards against inverted source data entry errors.
   const ct = Math.max(rawCT, rawQT);
   const qt = Math.min(rawCT, rawQT);
   const slowAnchor = ct * 1.06, fastAnchor = qt * 0.988;
@@ -1287,10 +1343,13 @@ function buildProgressBar(pbSec, qualify, consider) {
 // INFO BANNER
 // ============================================================
 function buildBanner(isCounty) {
-  const champDate = isCounty ? COUNTY_CHAMPS_DATE : REGIONAL_CHAMPS_DATE;
-  const label     = isCounty ? 'County' : 'Regional';
-  const champYear = parseLocalDate(champDate).getFullYear();
-  const isPast    = new Date() > parseLocalDate(champDate);
+  const champDate = isCounty ? getCountyChampsDate() : getRegionalChampsDate();
+  const label      = isCounty ? 'County' : 'Regional';
+  if (!champDate) {
+    return `ℹ️ <strong>Age Group note:</strong> No ${label} QT data loaded — Age Groups can't be calculated until a championship date is set. Sync or upload ${label} QT data, or enter a date via the ✏️ Edit Details button on the ${label} QT Editor tab.`;
+  }
+  const champYear  = parseLocalDate(champDate).getFullYear();
+  const isPast     = new Date() > parseLocalDate(champDate);
   const seasonYear = getSeasonYear(champDate);
   if (isPast) {
     return `ℹ️ <strong>Age Group note:</strong> The ${champYear} ${label} Championships took place on ${fmtDate(champDate)}. Age Groups shown are for the <strong>${seasonYear} season</strong> — calculated as each swimmer's age on 31 December ${seasonYear}. Qualifying and consideration times are from the <strong>${champYear} season</strong> as ${seasonYear} standards have not yet been published.`;
@@ -1393,29 +1452,28 @@ function renderTab(prefix) {
 
   // Swimmer cards
   if (qtData.length === 0) {
+    updateCollapseBtnVisibility(prefix, false);
     const swimmerCount = SWIMMERS.filter(sw => !sw.hidden).length;
     if (swimmerCount > 0) {
       listEl.innerHTML = `<div class="empty">
         <div class="empty-icon">📂</div>
         <p><strong>${swimmerCount} swimmer${swimmerCount !== 1 ? 's' : ''} loaded</strong> — but no QT standards are loaded yet.</p>
-        <p style="margin-top:8px;font-size:0.78rem;color:var(--text3)">Upload <code>county_qt.json</code> and <code>regional_qt.json</code> to see qualifying comparisons.</p>
-        <button class="btn primary" style="margin-top:14px" onclick="closeFab();showDataModal()">📤 Load QT Data</button>
+        <p style="margin-top:8px;font-size:0.78rem;color:var(--text3)">Sync or upload <code>county_qt.json</code> and <code>regional_qt.json</code> to see qualifying comparisons.</p>
+        <button class="btn primary" style="margin-top:14px" onclick="showDataModal()">📤 Manage Data</button>
       </div>`;
     } else {
       listEl.innerHTML = `<div class="empty">
         <div class="empty-icon">📂</div>
         <p>No data loaded yet.</p>
-        <p style="margin-top:8px;font-size:0.78rem;color:var(--text3)">Use the ＋ FAB to sync swimmers from Google Sheets, then upload QT standards.</p>
-        <div style="display:flex;gap:10px;justify-content:center;margin-top:14px;flex-wrap:wrap">
-          <button class="btn primary" onclick="closeFab();showSyncModal()">🔄 Sync Swimmers</button>
-          <button class="btn sec" onclick="closeFab();showDataModal()">📤 Load QT Data</button>
-        </div>
+        <p style="margin-top:8px;font-size:0.78rem;color:var(--text3)">Sync swimmers from Google Sheets and QT standards from GitHub, or upload files manually.</p>
+        <button class="btn primary" style="margin-top:14px" onclick="showDataModal()">📤 Manage Data</button>
       </div>`;
     }
     noteEl.textContent = '';
     return;
   }
   if (visibleSwimmers.length === 0) {
+    updateCollapseBtnVisibility(prefix, false);
     listEl.innerHTML = `<div class="empty"><div class="empty-icon">🏊</div><p>No swimmers match the current filters.</p></div>`;
     noteEl.textContent = '';
     return;
@@ -1523,12 +1581,13 @@ function renderTab(prefix) {
   });
 
   listEl.innerHTML = html || `<div class="empty"><div class="empty-icon">🔍</div><p>No results match the current filters.</p></div>`;
+  updateCollapseBtnVisibility(prefix, renderedCount > 0);
 
-  const champDate = isCounty ? COUNTY_CHAMPS_DATE : REGIONAL_CHAMPS_DATE;
-  const champYear = parseLocalDate(champDate).getFullYear();
+  const champDate = isCounty ? getCountyChampsDate() : getRegionalChampsDate();
   const qtMeta    = isCounty ? COUNTY_QT_META : REGIONAL_QT_META;
   const tabLabel  = qtMeta.title || (isCounty ? 'County' : 'Regional');
-  noteEl.textContent = `Showing ${tabLabel} QT standards · ${champYear} season · ${renderedCount} swimmer(s) shown.`;
+  const seasonNote = champDate ? `${parseLocalDate(champDate).getFullYear()} season · ` : '⚠️ no championship date set · ';
+  noteEl.textContent = `Showing ${tabLabel} QT standards · ${seasonNote}${renderedCount} swimmer(s) shown.`;
 }
 
 function renderCounty()   { renderTab('county'); }
@@ -1547,6 +1606,11 @@ function toggleCollapseAll(prefix) {
     .forEach(c => c.classList.toggle('collapsed', collapseAllState[prefix]));
   const btn = document.getElementById(prefix + 'CollapseBtn');
   if (btn) btn.textContent = collapseAllState[prefix] ? '⊞ Expand All' : '⊟ Collapse All';
+}
+// Show/hide the Collapse All button based on whether any swimmer cards are actually rendered.
+function updateCollapseBtnVisibility(prefix, hasCards) {
+  const btn = document.getElementById(prefix + 'CollapseBtn');
+  if (btn) btn.style.display = hasCards ? '' : 'none';
 }
 function resetFilters(prefix) {
   const p = prefix === 'county' ? 'c' : 'r';
@@ -1597,8 +1661,72 @@ function toggleTheme() {
 // ============================================================
 // DATA: LOAD, DOWNLOAD, SAVE
 // ============================================================
-function showDataModal()      { closeFab(); document.getElementById('dataModal').classList.add('open'); }
-function hideDataModal()      { document.getElementById('dataModal').classList.remove('open'); }
+function showDataModal() {
+  closeFab();
+  refreshDataModalStatus();
+  document.getElementById('dataModal').classList.add('open');
+}
+function hideDataModal() {
+  document.getElementById('dataModal').classList.remove('open');
+  cancelDataConflict();
+}
+
+// Populates the per-card swimmer/QT counts, last-sync timestamps, button enabled-state,
+// and cross-reference hints shown in the Manage Data modal.
+function refreshDataModalStatus() {
+  const swCount = SWIMMERS.length;
+  const cCount  = COUNTY_QT.length;
+  const rCount  = REGIONAL_QT.length;
+
+  const setCount = (id, count, withLabel) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = count ? withLabel(count) : (id === 'dataSwimmersCount' ? 'No swimmers loaded' : 'Not loaded');
+  };
+  setCount('dataSwimmersCount', swCount, n => `${n} swimmer${n !== 1 ? 's' : ''} loaded`);
+  setCount('dataCountyCount',   cCount,  n => `${n} rows loaded`);
+  setCount('dataRegionalCount', rCount,  n => `${n} rows loaded`);
+
+  // Disable Download/Clear per card when that card's dataset is empty — nothing to act on.
+  const setCardButtons = (downloadId, clearId, hasData) => {
+    const dl = document.getElementById(downloadId);
+    const cl = document.getElementById(clearId);
+    if (dl) dl.disabled = !hasData;
+    if (cl) cl.disabled = !hasData;
+  };
+  setCardButtons('dataSwimmersDownloadBtn', 'dataSwimmersClearBtn', swCount > 0);
+  setCardButtons('dataCountyDownloadBtn',   'dataCountyClearBtn',   cCount > 0);
+  setCardButtons('dataRegionalDownloadBtn', 'dataRegionalClearBtn', rCount > 0);
+
+  // Clear All Data only makes sense if there's something to clear.
+  const clearAllBtn = document.getElementById('dataClearAllBtn');
+  if (clearAllBtn) clearAllBtn.disabled = (swCount === 0 && cCount === 0 && rCount === 0);
+
+  // Cross-reference hints — swimmers and QT standards are both needed for the tabs to be useful.
+  const setHint = (id, show, text) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.style.display = show ? '' : 'none';
+    if (show) el.textContent = text;
+  };
+  const swimmerLabel = `${swCount} swimmer${swCount !== 1 ? 's' : ''}`;
+  setHint('dataSwimmersHint', swCount > 0 && cCount === 0 && rCount === 0,
+    `⚠️ ${swimmerLabel} loaded, but no QT standards yet — the County and Regional tabs will stay empty until you sync or upload QT data below.`);
+  setHint('dataCountyHint', cCount === 0 && swCount > 0,
+    `⚠️ No County QT data — the County tab won't show comparisons for your ${swimmerLabel} until this is loaded.`);
+  setHint('dataRegionalHint', rCount === 0 && swCount > 0,
+    `⚠️ No Regional QT data — the Regional tab won't show comparisons for your ${swimmerLabel} until this is loaded.`);
+
+  // Last-sync timestamps
+  const setLastSync = (key, selector) => {
+    const ts = localStorage.getItem(key);
+    const text = ts ? new Date(ts).toLocaleString() : 'Never';
+    document.querySelectorAll(selector).forEach(el => { el.textContent = text; });
+  };
+  setLastSync('coach_SHEETS_LAST_SYNC',      '#syncLastTimeInline');
+  setLastSync('coach_COUNTY_QT_LAST_SYNC',   '#countyQtLastSyncInline');
+  setLastSync('coach_REGIONAL_QT_LAST_SYNC', '#regionalQtLastSyncInline');
+}
+
 function showAddSwimmerModal() {
   closeFab();
   editingSwimmerId = null;
@@ -1618,58 +1746,234 @@ function hideAddSwimmerModal() {
   document.getElementById('addSwimmerModal').classList.remove('open');
 }
 
-function loadDataFiles() {
-  const errEl = document.getElementById('dataError');
-  errEl.style.display = 'none';
-  const defs = [
-    { el:'fileSwimmers',   ref:'SWIMMERS' },
-    { el:'fileCountyQT',   ref:'COUNTY_QT' },
-    { el:'fileRegionalQT', ref:'REGIONAL_QT' },
-  ];
-  const promises = defs.filter(d => document.getElementById(d.el).files[0])
-    .map(d => new Promise((res, rej) => {
-      const reader = new FileReader();
-      reader.onload = e => {
-        try { res({ ...d, data: JSON.parse(e.target.result) }); }
-        catch { rej(`Invalid JSON in ${document.getElementById(d.el).files[0].name}`); }
-      };
-      reader.onerror = () => rej('Failed to read file');
-      reader.readAsText(document.getElementById(d.el).files[0]);
-    }));
-  if (!promises.length) { errEl.textContent = 'Please select at least one file.'; errEl.style.display = 'block'; return; }
-  Promise.all(promises).then(results => {
-    results.forEach(r => {
-      if (r.ref === 'SWIMMERS') {
-        const timeRe = /^(\d{1,2}:)?\d{1,2}\.\d{2}$/;
-        const dobRe  = /^\d{4}-\d{2}-\d{2}$/;
-        let skipped = 0;
-        SWIMMERS = (Array.isArray(r.data) ? r.data : []).filter(sw => {
-          if (!sw.name || typeof sw.name !== 'string') { skipped++; return false; }
-          if (!sw.dob  || !dobRe.test(sw.dob) || isNaN(Date.parse(sw.dob))) { skipped++; return false; }
-          if (sw.gender !== 'Boys' && sw.gender !== 'Girls')                 { skipped++; return false; }
-          // Sanitise PBs — drop entries with unparseable times; coerce negatives
-          if (Array.isArray(sw.pbs)) {
-            sw.pbs = sw.pbs.filter(pb => pb.time && timeRe.test(String(pb.time)));
-          } else { sw.pbs = []; }
-          return true;
-        });
-        if (skipped) console.warn(`Coach Dashboard: ${skipped} swimmer record(s) skipped due to missing or invalid required fields.`);
-        localStorage.setItem('coach_SWIMMERS', JSON.stringify(SWIMMERS));
-      } else if (r.ref === 'COUNTY_QT') {
-        const parsed = parseQTFull(r.data);
-        COUNTY_QT_META = parsed.meta; COUNTY_QT = parsed.times;
-        localStorage.setItem('coach_COUNTY_QT_FULL', JSON.stringify({ meta: COUNTY_QT_META, times: COUNTY_QT }));
-      } else if (r.ref === 'REGIONAL_QT') {
-        const parsed = parseQTFull(r.data);
-        REGIONAL_QT_META = parsed.meta; REGIONAL_QT = parsed.times;
-        localStorage.setItem('coach_REGIONAL_QT_FULL', JSON.stringify({ meta: REGIONAL_QT_META, times: REGIONAL_QT }));
+// ── Shared status / error helpers for the data modal ──────────
+function setDataStatus(type, msg) {
+  const el = document.getElementById('dataStatus');
+  if (!el) return;
+  el.style.display = 'block';
+  el.className = `sync-${type}`;
+  el.textContent = msg;
+}
+function clearDataStatus() {
+  const el = document.getElementById('dataStatus');
+  if (el) { el.style.display = 'none'; el.textContent = ''; }
+}
+function setDataError(msg) {
+  const el = document.getElementById('dataError');
+  if (!el) return;
+  if (msg) { el.textContent = msg; el.style.display = 'block'; }
+  else     { el.style.display = 'none'; el.textContent = ''; }
+}
+function readJsonFile(inputEl) {
+  return new Promise((resolve, reject) => {
+    const file = inputEl.files[0];
+    if (!file) { reject('Please choose a file first.'); return; }
+    const reader = new FileReader();
+    reader.onload = e => {
+      try { resolve(JSON.parse(e.target.result)); }
+      catch { reject(`Invalid JSON in ${file.name}`); }
+    };
+    reader.onerror = () => reject('Failed to read file.');
+    reader.readAsText(file);
+  });
+}
+
+// Validates and sanitises a raw swimmers array exactly as loadDataFiles used to.
+function sanitiseSwimmersData(rawData) {
+  const timeRe = /^(\d{1,2}:)?\d{1,2}\.\d{2}$/;
+  const dobRe  = /^\d{4}-\d{2}-\d{2}$/;
+  let skipped = 0;
+  const clean = (Array.isArray(rawData) ? rawData : []).filter(sw => {
+    if (!sw.name || typeof sw.name !== 'string') { skipped++; return false; }
+    if (!sw.dob  || !dobRe.test(sw.dob) || isNaN(Date.parse(sw.dob))) { skipped++; return false; }
+    if (sw.gender !== 'Boys' && sw.gender !== 'Girls')                 { skipped++; return false; }
+    if (Array.isArray(sw.pbs)) {
+      sw.pbs = sw.pbs.filter(pb => pb.time && timeRe.test(String(pb.time)));
+    } else { sw.pbs = []; }
+    return true;
+  });
+  if (skipped) console.warn(`Coach Dashboard: ${skipped} swimmer record(s) skipped due to missing or invalid required fields.`);
+  return clean;
+}
+
+// ── Conflict resolution state — used by both manual swimmer upload and QT upload ──
+let _pendingConflict = null; // { kind: 'swimmers'|'county'|'regional', data: ... }
+
+// opts: { merge: bool, mergeOverwrite: bool } — which extra buttons to show beyond Cancel/Replace
+function showDataConflict(kind, data, message, opts) {
+  opts = opts || {};
+  _pendingConflict = { kind, data };
+  document.getElementById('dataConflictMsg').textContent = message;
+  document.getElementById('dataConflictMergeBtn').style.display          = opts.merge          ? '' : 'none';
+  document.getElementById('dataConflictMergeOverwriteBtn').style.display = opts.mergeOverwrite  ? '' : 'none';
+  document.getElementById('dataConflictBox').style.display = 'block';
+}
+function cancelDataConflict() {
+  _pendingConflict = null;
+  const box = document.getElementById('dataConflictBox');
+  if (box) box.style.display = 'none';
+  clearDataStatus();
+}
+function resolveDataConflict(mode) {
+  if (!_pendingConflict) return;
+  const { kind, data } = _pendingConflict;
+  cancelDataConflict();
+  if (kind === 'swimmers') applySwimmersUpload(data, mode);
+  else applyQTUpload(kind, data, mode);
+}
+
+// ── Swimmers: manual upload ────────────────────────────────────
+function loadSwimmersFile() {
+  setDataError(null); clearDataStatus();
+  const input = document.getElementById('fileSwimmers');
+  readJsonFile(input).then(rawData => {
+    const clean = sanitiseSwimmersData(rawData);
+    if (SWIMMERS.length > 0) {
+      showDataConflict('swimmers', clean,
+        `You already have ${SWIMMERS.length} swimmer(s) loaded. Replace will discard them and load only the file's ${clean.length} swimmer(s). Merge will match by name + date of birth, keeping the faster PB for each event.`,
+        { merge: true });
+    } else {
+      applySwimmersUpload(clean, 'replace');
+    }
+  }).catch(err => setDataError('Error: ' + err));
+}
+function applySwimmersUpload(clean, mode) {
+  if (mode === 'merge') {
+    const result = mergeSwimmers(clean, 'keep'); // local-only swimmers always kept on manual merge
+    localStorage.setItem('coach_SWIMMERS', JSON.stringify(SWIMMERS));
+    setDataStatus('success', `✅ Merged — ${result.added} added, ${result.updated} updated, ${result.kept} local kept.`);
+  } else {
+    SWIMMERS = clean;
+    localStorage.setItem('coach_SWIMMERS', JSON.stringify(SWIMMERS));
+    setDataStatus('success', `✅ Replaced — ${SWIMMERS.length} swimmer(s) loaded.`);
+  }
+  checkLocalStorageSize();
+  refreshDataModalStatus();
+  renderCounty(); renderRegional();
+}
+
+// ── QT: manual upload (county / regional) ──────────────────────
+function loadQTFile(prefix) {
+  setDataError(null); clearDataStatus();
+  const inputId = prefix === 'county' ? 'fileCountyQT' : 'fileRegionalQT';
+  const input = document.getElementById(inputId);
+  readJsonFile(input).then(rawData => {
+    const existing = prefix === 'county' ? COUNTY_QT : REGIONAL_QT;
+    if (existing.length > 0) {
+      const label = prefix === 'county' ? 'County' : 'Regional';
+      showDataConflict(prefix, rawData,
+        `You already have ${existing.length} ${label} QT row(s) loaded. Replace discards them and loads the file's data instead. "Merge — add new only" adds rows for events/ages not already present, leaving existing rows untouched. "Merge — overwrite matching" does the same but also updates the qualify/consider times for any row that already exists.`,
+        { merge: true, mergeOverwrite: true });
+    } else {
+      applyQTUpload(prefix, rawData, 'replace');
+    }
+  }).catch(err => setDataError('Error: ' + err));
+}
+function applyQTUpload(prefix, rawData, mode) {
+  const parsed = parseQTFull(rawData);
+  const isCounty = prefix === 'county';
+  if (mode === 'merge' || mode === 'merge-overwrite') {
+    const existing = isCounty ? COUNTY_QT : REGIONAL_QT;
+    const key = r => `${r.gender}|${r.course}|${r.event}|${r.age}`;
+    const existingMap = new Map(existing.map(r => [key(r), r]));
+    let added = 0, overwritten = 0, skipped = 0;
+    parsed.times.forEach(r => {
+      const k = key(r);
+      if (!existingMap.has(k)) {
+        existingMap.set(k, r);
+        added++;
+      } else if (mode === 'merge-overwrite') {
+        existingMap.set(k, r); // replace the row's qualify/consider with the uploaded values
+        overwritten++;
+      } else {
+        skipped++; // merge (add new only) — leave the existing row as-is
       }
     });
-    checkLocalStorageSize();
-    hideDataModal();
-    renderCounty(); renderRegional();
-  }).catch(err => { errEl.textContent = 'Error: ' + err; errEl.style.display = 'block'; });
+    const merged = Array.from(existingMap.values());
+    if (isCounty) { COUNTY_QT = merged; } else { REGIONAL_QT = merged; }
+    saveQTToStorage(prefix);
+    const overwriteNote = mode === 'merge-overwrite' ? `, ${overwritten} overwritten` : (skipped ? `, ${skipped} already present (kept)` : '');
+    setDataStatus('success', `✅ Merged — ${added} new row(s) added${overwriteNote} for ${isCounty ? 'County' : 'Regional'} QT.`);
+  } else {
+    if (isCounty) { COUNTY_QT_META = parsed.meta; COUNTY_QT = parsed.times; }
+    else { REGIONAL_QT_META = parsed.meta; REGIONAL_QT = parsed.times; }
+    saveQTToStorage(prefix);
+    setDataStatus('success', `✅ Replaced — ${parsed.times.length} row(s) loaded for ${isCounty ? 'County' : 'Regional'} QT.`);
+  }
+  checkLocalStorageSize();
+  refreshDataModalStatus();
+  updateMetaDisplay(prefix);
+  renderCounty(); renderRegional();
 }
+
+// ── QT: sync from GitHub ────────────────────────────────────────
+async function syncQTFromGitHub(prefix) {
+  setDataError(null); clearDataStatus();
+  const url = prefix === 'county' ? QT_DATA_URL : SE_QT_DATA_URL;
+  const label = prefix === 'county' ? 'County' : 'Regional';
+  if (!url) { setDataError(`No GitHub URL configured for ${label} QT data.`); return; }
+  setDataStatus('info', `⏳ Fetching ${label} QT data from GitHub…`);
+  try {
+    const response = await fetch(url, { cache: 'no-store' });
+    if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    const rawData = await response.json();
+    const parsed  = parseQTFull(rawData);
+    if (prefix === 'county') { COUNTY_QT_META = parsed.meta; COUNTY_QT = parsed.times; }
+    else { REGIONAL_QT_META = parsed.meta; REGIONAL_QT = parsed.times; }
+    saveQTToStorage(prefix);
+    localStorage.setItem(prefix === 'county' ? 'coach_COUNTY_QT_LAST_SYNC' : 'coach_REGIONAL_QT_LAST_SYNC', new Date().toISOString());
+    checkLocalStorageSize();
+    refreshDataModalStatus();
+    updateMetaDisplay(prefix);
+    renderCounty(); renderRegional();
+    setDataStatus('success', `✅ ${label} QT synced — ${parsed.times.length} row(s) loaded from GitHub.`);
+  } catch (err) {
+    console.error('GitHub QT sync error:', err);
+    setDataError(`Error syncing ${label} QT data: ${err.message}`);
+    clearDataStatus();
+  }
+}
+
+// ── Clear data — wipes the chosen dataset(s) from memory and localStorage ──
+// kind: 'swimmers' | 'county' | 'regional' | 'all'
+function clearData(kind) {
+  setDataError(null); clearDataStatus(); cancelDataConflict();
+
+  const labels = {
+    swimmers: `all ${SWIMMERS.length} swimmer(s)`,
+    county:   `County QT data (${COUNTY_QT.length} row(s))`,
+    regional: `Regional QT data (${REGIONAL_QT.length} row(s))`,
+    all:      'Swimmers, County QT, and Regional QT data',
+  };
+  const confirmMsg = `This will permanently remove ${labels[kind]} from this browser. `
+    + `This cannot be undone — download a backup first if you might need it. Continue?`;
+  if (!confirm(confirmMsg)) return;
+
+  if (kind === 'swimmers' || kind === 'all') {
+    SWIMMERS = [];
+    localStorage.removeItem('coach_SWIMMERS');
+    localStorage.removeItem('coach_SHEETS_LAST_SYNC');
+  }
+  if (kind === 'county' || kind === 'all') {
+    COUNTY_QT = []; COUNTY_QT_META = { title: '', dateFrom: '', dateTo: '' };
+    localStorage.removeItem('coach_COUNTY_QT_FULL');
+    localStorage.removeItem('coach_COUNTY_QT');
+    localStorage.removeItem('coach_COUNTY_QT_LAST_SYNC');
+  }
+  if (kind === 'regional' || kind === 'all') {
+    REGIONAL_QT = []; REGIONAL_QT_META = { title: '', dateFrom: '', dateTo: '' };
+    localStorage.removeItem('coach_REGIONAL_QT_FULL');
+    localStorage.removeItem('coach_REGIONAL_QT');
+    localStorage.removeItem('coach_REGIONAL_QT_LAST_SYNC');
+  }
+
+  refreshDataModalStatus();
+  updateMetaDisplay('county');
+  updateMetaDisplay('regional');
+  renderCounty(); renderRegional();
+  setDataStatus('success', `✅ Cleared ${labels[kind]}.`);
+}
+
 
 function downloadSwimmers() {
   const json = JSON.stringify(SWIMMERS, null, 2);
@@ -2119,49 +2423,6 @@ function downloadQTData(prefix) {
 }
 
 // ============================================================
-// SAMPLE DATA
-// ============================================================
-function loadSampleData() {
-  SWIMMERS = [
-    { id:'sw_001', name:'Alex Smith',      dob:'2012-04-15', gender:'Boys', squad:'Junior', pbs:[
-      { event:'100 Back',  course:'S', time:'1:22.80', date:'2025-11-15', competition:'Watford SC County Qualifier 2025' },
-      { event:'200 Back',  course:'S', time:'2:55.68', date:'2025-11-15', competition:'Watford SC County Qualifier 2025' },
-      { event:'50 Back',   course:'S', time:'36.10',   date:'2025-10-20' },
-      { event:'100 Free',  course:'S', time:'1:11.20', date:'2025-09-08' },
-      { event:'200 Free',  course:'S', time:'2:35.40', date:'2025-09-08' },
-    ]},
-    { id:'sw_002', name:'Priya Patel',     dob:'2011-09-22', gender:'Girls', squad:'Senior', pbs:[
-      { event:'50 Free',   course:'S', time:'30.90',   date:'2025-11-01' },
-      { event:'100 Free',  course:'S', time:'1:07.50', date:'2025-10-15' },
-      { event:'50 Back',   course:'S', time:'34.80',   date:'2025-10-15' },
-      { event:'100 Back',  course:'L', time:'1:18.20', date:'2025-09-20' },
-    ]},
-    { id:'sw_003', name:'Jamie Chen',      dob:'2013-02-08', gender:'Boys', squad:'Development', pbs:[
-      { event:'100 Breast',course:'S', time:'1:30.10', date:'2025-10-12' },
-      { event:'200 Breast',course:'S', time:'3:12.40', date:'2025-10-12' },
-      { event:'200 IM',    course:'S', time:'2:58.30', date:'2025-11-02' },
-    ]},
-    { id:'sw_004', name:'Sophia Williams', dob:'2010-07-30', gender:'Girls', squad:'Active', pbs:[
-      { event:'50 Fly',    course:'S', time:'32.50',   date:'2025-11-08' },
-      { event:'100 Fly',   course:'S', time:'1:12.40', date:'2025-11-08' },
-      { event:'200 IM',    course:'S', time:'2:39.20', date:'2025-10-22' },
-      { event:'400 IM',    course:'S', time:'5:28.80', date:'2025-09-15' },
-    ]},
-    { id:'sw_005', name:'Oliver Nguyen',   dob:'2012-11-14', gender:'Boys', squad:'Junior', pbs:[
-      { event:'50 Free',   course:'S', time:'31.20',   date:'2025-11-10' },
-      { event:'100 Free',  course:'S', time:'1:08.40', date:'2025-11-10' },
-      { event:'50 Fly',    course:'S', time:'34.50',   date:'2025-10-05' },
-    ]},
-    { id:'sw_006', name:'Mia Thompson',    dob:'2013-05-19', gender:'Girls', squad:'Development', pbs:[
-      { event:'200 Free',  course:'S', time:'2:42.10', date:'2025-10-18' },
-      { event:'400 Free',  course:'S', time:'5:38.20', date:'2025-10-18' },
-      { event:'100 Free',  course:'L', time:'1:12.30', date:'2025-08-25' },
-    ]},
-  ];
-  // COUNTY_QT and REGIONAL_QT already populated from localStorage on module init
-}
-
-// ============================================================
 // FAB
 // ============================================================
 let fabOpen = false;
@@ -2171,9 +2432,7 @@ function closeFab()   { fabOpen=false; document.getElementById('fabBackdrop').cl
 function fabToggleTheme()      { closeFab(); toggleTheme(); }
 function fabShowDataModal()    { closeFab(); showDataModal(); }
 function fabShowAddSwimmer()   { closeFab(); showAddSwimmerModal(); }
-function fabShowSyncModal()    { closeFab(); showSyncModal(); }
 function fabShowSettingsModal(){ closeFab(); showSettingsModal(); }
-function fabShowSyncModal()  { closeFab(); showSyncModal(); }
 
 // ============================================================
 // KEYBOARD
@@ -2233,7 +2492,11 @@ let _syncCloseTimer = null;
 function showSyncModal() {
   const savedUrl  = localStorage.getItem('coach_SYNC_URL') || SHEETS_SYNC_URL || '';
   const urlWarn   = document.getElementById('syncUrlWarning');
+  const urlRow    = document.getElementById('syncUrlRow');
+  const urlInput  = document.getElementById('syncUrlInput');
   if (urlWarn) urlWarn.style.display = savedUrl ? 'none' : 'block';
+  if (urlRow)  urlRow.style.display  = savedUrl ? 'none' : '';
+  if (urlInput) urlInput.value = savedUrl;
   const savedToken = localStorage.getItem('coach_SYNC_TOKEN') || '';
   const tokenInput = document.getElementById('syncTokenInput');
   if (tokenInput && savedToken) tokenInput.value = savedToken;
@@ -2280,10 +2543,19 @@ function saveSettings() {
 
 // ── Main sync function ───────────────────────────────────────
 async function startSync() {
-  const syncUrl = (localStorage.getItem('coach_SYNC_URL') || SHEETS_SYNC_URL || '').trim();
+  let syncUrl = (localStorage.getItem('coach_SYNC_URL') || SHEETS_SYNC_URL || '').trim();
   if (!syncUrl) {
-    setSyncStatus('error', '⚠️ No Apps Script URL configured. Open ⚙️ Settings and paste your Web App URL.');
-    return;
+    const inlineUrl = (document.getElementById('syncUrlInput')?.value || '').trim();
+    if (!inlineUrl) {
+      setSyncStatus('error', '⚠️ Please paste your Apps Script Web App URL above.');
+      return;
+    }
+    syncUrl = inlineUrl;
+    localStorage.setItem('coach_SYNC_URL', syncUrl);
+    const urlWarn = document.getElementById('syncUrlWarning');
+    const urlRow  = document.getElementById('syncUrlRow');
+    if (urlWarn) urlWarn.style.display = 'none';
+    if (urlRow)  urlRow.style.display  = 'none';
   }
   const token = (document.getElementById('syncTokenInput')?.value || '').trim();
   if (!token) {
@@ -2342,6 +2614,7 @@ async function startSync() {
     // Re-render in place — no page reload needed
     renderCounty();
     renderRegional();
+    refreshDataModalStatus();
 
     // Auto-close after 2.5 s on success (with countdown in close button)
     const closeBtn = document.querySelector('#syncModal .modal-close');
