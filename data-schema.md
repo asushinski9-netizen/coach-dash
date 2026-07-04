@@ -1,4 +1,6 @@
-# Coach Dashboard — Data Schemas (v2.3)
+# Coach Dashboard — Data Schemas (v2.4)
+
+No JSON schema changes this session — all shapes below are unchanged from v2.3. Updated only to note where rendering-side escaping (not input validation) is the actual security boundary for certain fields; see the "Field validation vs. rendering safety" note at the end of §1 and §2.
 
 ---
 
@@ -49,7 +51,7 @@
 | `"Senior"` | Purple |
 | `"Active"` | Green |
 | `"Masters"` | Amber |
-| `"Former Swimmer"` | Grey |
+| `"Former Swimmer"` | Grey — hidden by default; see the Former Swimmer gate in `architecture.md`. As of v2.4, a Former Swimmer hidden this way is surfaced (with reason) in the tab's "not shown" footer note rather than silently vanishing. |
 | *(omitted)* | No badge shown |
 
 ### PB entry object
@@ -72,6 +74,10 @@ On manual file upload, each swimmer record is validated before being accepted:
 - `gender` must be exactly `"Boys"` or `"Girls"`
 - Any PB entry whose `time` doesn't match `^(\d{1,2}:)?\d{1,2}\.\d{2}$` is dropped silently
 - Records failing the above are skipped (not the whole file); a console warning reports the skip count
+
+**Field validation vs. rendering safety (added v2.4):** `sanitiseSwimmersData` does **not** validate or regenerate `id`. This isn't currently a security hole — as of v2.4, every place `id` is rendered (`onclick` attributes via `escAttr()`) is safe against arbitrary content — but it does mean an uploaded file can carry through an `id` value that doesn't match the `"sw_"`/`"sh_"` convention. Not enforced, no known downstream impact beyond cosmetic.
+
+**Sheets sync bypasses this validator entirely** — `startSync()` passes the Apps Script payload straight into `mergeSwimmers()` with no equivalent check on `dob`/`gender`/`time`. A malformed value from the Sheet (e.g. a DOB in the wrong cell format) produces a swimmer whose card silently doesn't render — surfaced since v2.4 as a `no-match` entry in the tab's "not shown" diagnostic, distinguishable from a genuine "no PB" swimmer.
 
 ---
 
@@ -99,7 +105,7 @@ On manual file upload, each swimmer record is validated before being accepted:
 }
 ```
 
-**`meta.dateFrom` / `meta.dateTo` now drive Age Group calculation dashboard-wide** (see `architecture.md` → Championship Dates). This is the only source of championship date information as of v2.3 — there is no hardcoded fallback constant in the dashboard.
+**`meta.dateFrom` / `meta.dateTo` drive Age Group calculation dashboard-wide** (see `architecture.md` → Age bracket calculation). As of v2.4, they also drive the exact wording of the championship-date banner via `describeChampDates()` — a range, a single day, or an open-ended "began on"/"concluded on" phrasing depending on which of the two fields are actually set. There is no hardcoded fallback constant.
 
 ### Legacy format (still accepted)
 
@@ -107,7 +113,7 @@ On manual file upload, each swimmer record is validated before being accepted:
 [ { "gender": "Boys", "course": "Short Course", "event": "50 Back", "age": "12", "qualify": 38.10, "consider": 40.80 } ]
 ```
 
-`parseQTFull()` auto-detects. Legacy load sets empty meta — meaning Age Groups won't resolve until dates are added manually via the QT Editor's ✏️ Edit Details form.
+`parseQTFull()` auto-detects. Legacy load sets empty meta — Age Groups and the championship-date banner won't resolve until dates are added manually via the QT Editor's ✏️ Edit Details form.
 
 ### `times` entry fields
 
@@ -120,11 +126,12 @@ On manual file upload, each swimmer record is validated before being accepted:
 | `qualify` | number\|null | Qualifying time in **seconds** (float). `null` = not offered |
 | `consider` | number\|null | Consideration time in **seconds** (float). `null` = not offered |
 
-`qualify` should be ≤ `consider` (faster). Both null = not offered for this age. Code normalises inverted values defensively but source data should still be correct — the previously-known inverted rows in `county_qt.json` (Girls/17+/SC/200 IM, Girls/16/LC/1500 Free) have been fixed at source.
+`qualify` should be ≤ `consider` (faster). Both null = not offered for this age. Code normalises inverted values defensively but source data should still be correct.
 
-### GitHub sync source (v2.3)
+**No manual-upload validation exists for this file type** (added v2.4 note — `applyQTUpload()` performs no checks on `gender`/`course`/`event`/`age`/`qualify`/`consider` at all before accepting an uploaded QT file). This is not currently a security hole — `renderQTEditor()`'s `gender`/`event` display cells are correctly escaped via `escHtml()` as of v2.4 — but a QT file with an `event` string outside `ALL_EVENTS`, or non-numeric `qualify`/`consider`, will silently produce entries that never match any swimmer lookup rather than being rejected with a clear error at upload time.
 
-`county_qt.json` / `regional_qt.json` are hosted at:
+### GitHub sync source
+
 ```
 https://raw.githubusercontent.com/asushinski9-netizen/coach-dash/main/county_qt.json
 https://raw.githubusercontent.com/asushinski9-netizen/coach-dash/main/regional_qt.json
@@ -143,17 +150,14 @@ Pulled via the 🔄 Sync from GitHub button on each QT card in 📤 Manage Data.
 100 IM    200 IM     400 IM
 ```
 
-`100 IM` does not appear in either QT file — PBs are stored but no QT comparison is shown for it.
-
 ---
 
-## 4. Google Sheet Structure (unchanged in v2.3)
+## 4. Google Sheet Structure (unchanged since v2.2)
 
 **Sheet ID:** `17cPbJgykqF7JHcWUPS4HoYASCG14A7cwug5k0D_M9DM`
 
 ### "Basic Data" tab
-- Rows 1–2: headers
-- Data from row 3
+Rows 1–2: headers. Data from row 3.
 
 | Col | Content | Format |
 |---|---|---|
@@ -163,8 +167,7 @@ Pulled via the 🔄 Sync from GitHub button on each QT card in 📤 Manage Data.
 | D | Squad | Free text — normalised via `SQUAD_MAP` |
 
 ### "Results" tab
-- Row 1: header
-- Data from row 2
+Row 1: header. Data from row 2.
 
 | Col | Content | Notes |
 |---|---|---|
@@ -192,30 +195,21 @@ Formula: `index = 6 + (distance/50 × 2) − 1`
 
 ### Event abbreviation mapping (Sheet → dashboard)
 
-| Sheet | Dashboard |
-|---|---|
-| 50 FS | 50 Free |
-| 100 FS | 100 Free |
-| 200 FS | 200 Free |
-| 400 FS | 400 Free |
-| 800 FS | 800 Free |
-| 1500 FS | 1500 Free |
-| 50 BK | 50 Back |
-| 100 BK | 100 Back |
-| 200 BK | 200 Back |
-| 50 BRST | 50 Breast |
-| 100 BRST | 100 Breast |
-| 200 BRST | 200 Breast |
-| 50 FLY | 50 Fly |
-| 100 FLY | 100 Fly |
-| 200 FLY | 200 Fly |
-| 100 IM | 100 IM |
-| 200 IM | 200 IM |
-| 400 IM | 400 IM |
+| Sheet | Dashboard | Sheet | Dashboard |
+|---|---|---|---|
+| 50 FS | 50 Free | 50 BRST | 50 Breast |
+| 100 FS | 100 Free | 100 BRST | 100 Breast |
+| 200 FS | 200 Free | 200 BRST | 200 Breast |
+| 400 FS | 400 Free | 50 FLY | 50 Fly |
+| 800 FS | 800 Free | 100 FLY | 100 Fly |
+| 1500 FS | 1500 Free | 200 FLY | 200 Fly |
+| 50 BK | 50 Back | 100 IM | 100 IM |
+| 100 BK | 100 Back | 200 IM | 200 IM |
+| 200 BK | 200 Back | 400 IM | 400 IM |
 
 ---
 
-## 5. Apps Script Payload (unchanged in v2.3)
+## 5. Apps Script Payload (unchanged since v2.2)
 
 ```json
 {
@@ -226,7 +220,7 @@ Formula: `index = 6 + (distance/50 × 2) − 1`
 }
 ```
 
-Dashboard unwraps `payload.swimmers` — handles both plain array and wrapped format.
+Dashboard unwraps `payload.swimmers` — handles both plain array and wrapped format. Fetched by `startSync()` as `GET ${syncUrl}?token=${token}` — **the token is sent as a URL query parameter, not a header**; see `known-bugs-and-fixes.md` Open Issue #1 for why this hasn't been changed yet.
 
 ---
 
@@ -237,14 +231,11 @@ Dashboard unwraps `payload.swimmers` — handles both plain array and wrapped fo
 | `coach_SWIMMERS` | JSON array | startSync, applySwimmersUpload, saveSwimmer, deleteSwimmer, clearData | User-authoritative |
 | `coach_COUNTY_QT_FULL` | `{meta,times}` JSON | saveQTToStorage | |
 | `coach_REGIONAL_QT_FULL` | `{meta,times}` JSON | saveQTToStorage | |
-| `coach_COUNTY_QT` | Plain array | *(legacy read-only fallback)* | Never written in v2+ |
-| `coach_REGIONAL_QT` | Plain array | *(legacy read-only fallback)* | Never written in v2+ |
+| `coach_COUNTY_QT` / `coach_REGIONAL_QT` | Plain array | *(legacy read-only fallback)* | Never written in v2+ |
 | `coach_theme` | `'light'`/`'dark'` | toggleTheme | |
-| `coach_SYNC_URL` | string | saveSettings, startSync | Apps Script Web App URL — shared by all coaches |
-| `coach_SYNC_TOKEN` | string | saveSettings, startSync | Shared secret token |
-| `coach_SHEETS_LAST_SYNC` | ISO timestamp | startSync | Cleared by clearData('swimmers'/'all') |
-| `coach_COUNTY_QT_LAST_SYNC` | ISO timestamp | syncQTFromGitHub('county') | New in v2.3; cleared by clearData('county'/'all') |
-| `coach_REGIONAL_QT_LAST_SYNC` | ISO timestamp | syncQTFromGitHub('regional') | New in v2.3; cleared by clearData('regional'/'all') |
+| `coach_SYNC_URL` / `coach_SYNC_TOKEN` | string | saveSettings, startSync | Shared by all coaches |
+| `coach_SHEETS_LAST_SYNC` | ISO timestamp | startSync | Cleared by clearData('swimmers'/'all'); displayed via `fmtDateTime()` (DD/MM/YYYY, 24hr — added v2.4, was previously browser-locale-dependent) |
+| `coach_COUNTY_QT_LAST_SYNC` / `coach_REGIONAL_QT_LAST_SYNC` | ISO timestamp | syncQTFromGitHub | Cleared by clearData('county'/'regional'/'all') |
 
 ---
 
@@ -268,7 +259,8 @@ Dashboard unwraps `payload.swimmers` — handles both plain array and wrapped fo
 | Swimmer PBs (JSON) | `"mm:ss.hh"` or `"ss.hh"` string |
 | QT times (JSON) | Float seconds — e.g. `38.10` |
 | QT editor inputs | `"mm:ss.hh"` or `"ss.hh"` (converted via `secToTime`/`timeToSec`) |
+| Sync/last-updated timestamps (UI) | `"DD/MM/YYYY, HH:MM"` 24hr, via `fmtDateTime()` — added v2.4 |
 | Sheet Results tab cumulative | `"mm:ss.hh"` string — parsed by `parseTimeStr()` in Apps Script |
 | Sheet Results tab splits | Float seconds |
 
-Conversion functions: `timeToSec("1:22.80")` → `82.80` · `secToTime(82.80)` → `"1:22.80"`
+Conversion functions: `timeToSec("1:22.80")` → `82.80` · `secToTime(82.80)` → `"1:22.80"` · `fmtDateTime(isoString)` → `"01/07/2026, 12:43"`
