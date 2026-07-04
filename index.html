@@ -601,7 +601,7 @@ table.swimmer-tbl tr:hover td { background: var(--surface2); }
     </div>
     <div class="section-header">
       <div class="section-title">Swimmers</div>
-      <button class="fbtn" id="countyCollapseBtn" onclick="toggleCollapseAll('county')">⊟ Collapse All</button>
+      <button class="fbtn" id="countyCollapseBtn" onclick="toggleCollapseAll('county')">⊞ Expand All</button>
     </div>
     <div class="swimmers-list" id="countyList"></div>
     <div class="note" id="countyNote"></div>
@@ -694,7 +694,7 @@ table.swimmer-tbl tr:hover td { background: var(--surface2); }
     </div>
     <div class="section-header">
       <div class="section-title">Swimmers</div>
-      <button class="fbtn" id="regionalCollapseBtn" onclick="toggleCollapseAll('regional')">⊟ Collapse All</button>
+      <button class="fbtn" id="regionalCollapseBtn" onclick="toggleCollapseAll('regional')">⊞ Expand All</button>
     </div>
     <div class="swimmers-list" id="regionalList"></div>
     <div class="note" id="regionalNote"></div>
@@ -1151,8 +1151,25 @@ const AVATAR_COLORS = [
 // Single source of truth for status precedence ordering
 const STATUS_RANK = s => ({'Qualified':0,'Consideration':1,'Outside':2,'No PB':3,'No Data':4}[s] ?? 5);
 
-// Escape a value for use inside a single-quoted JS string in an HTML onclick attribute
-const escAttr = s => String(s).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+// Escape a value for use inside onclick="fn('${value}')" — a JS single-quoted string
+// literal NESTED inside an HTML double-quoted attribute. Both layers need escaping:
+//  1. Backslash/single-quote, so the value can't break out of the JS string literal.
+//  2. HTML-entity-encode & " < > AFTER that, so the value can't break out of the
+//     onclick="..." attribute itself — the browser decodes HTML entities in an attribute
+//     value before treating it as JS source, so &quot; becomes a literal " inside the JS
+//     string (harmless there, since it's single-quoted) while remaining inert at the HTML
+//     parsing layer. Order matters: JS-escape first, then HTML-escape, so the entities from
+//     step 2 aren't themselves reinterpreted as JS escape sequences.
+// A value like `sw_1" onmouseover="alert(1)` from a manually-uploaded JSON file (id is not
+// validated by sanitiseSwimmersData) previously broke out of the onclick attribute entirely
+// and injected a real, browser-executed event handler — confirmed via a jsdom reparse test.
+const escAttr = s => String(s)
+  .replace(/\\/g, '\\\\')
+  .replace(/'/g, "\\'")
+  .replace(/&/g, '&amp;')
+  .replace(/"/g, '&quot;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;');
 
 // ============================================================
 // DATA GLOBALS
@@ -1186,7 +1203,7 @@ let COUNTY_QT        = _cFull.times;
 let REGIONAL_QT      = _rFull.times;
 
 // Collapse-all state per tab
-const collapseAllState = { county: false, regional: false };
+const collapseAllState = { county: true, regional: true };
 
 // Edit swimmer state — null when adding new, swimmer id string when editing
 let editingSwimmerId = null;
@@ -1214,6 +1231,16 @@ function fmtDate(d) {
   const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   const dt = parseLocalDate(d);
   return `${dt.getDate()} ${months[dt.getMonth()]} ${dt.getFullYear()}`;
+}
+// Formats an ISO timestamp as DD/MM/YYYY, HH:MM (24hr) — used for sync "Last synced" displays.
+// Deliberately NOT toLocaleString(), which defaults to the browser locale (e.g. US M/D/YYYY
+// for an en-US browser) regardless of where the club or its coaches are based.
+function fmtDateTime(iso) {
+  if (!iso) return 'Never';
+  const dt = new Date(iso);
+  if (isNaN(dt.getTime())) return 'Never';
+  const pad = n => String(n).padStart(2, '0');
+  return `${pad(dt.getDate())}/${pad(dt.getMonth()+1)}/${dt.getFullYear()}, ${pad(dt.getHours())}:${pad(dt.getMinutes())}`;
 }
 function getAgeAtEndOfYear(dob, year) {
   return year - parseLocalDate(dob).getFullYear();
@@ -1253,8 +1280,60 @@ function escHtml(s) {
 }
 
 // ============================================================
-// QT LOOKUP
-// ============================================================
+// DIAGNOSTIC: why does a swimmer's card not render?
+// A swimmer produces zero visible rows (and so their whole card is hidden) for one of
+// three structurally different reasons that look identical in the UI otherwise:
+//   'no-match' — NOT ONE QT row matched their gender+age-bracket combination at all, for
+//                ANY event, regardless of PBs. Points to a data problem — most likely an
+//                unparseable/malformed `dob` (Sheet sync doesn't validate dob/gender the
+//                way a manual file upload does — see sanitiseSwimmersData), or a `gender`
+//                value that isn't exactly "Boys"/"Girls".
+//   'no-pbs'   — their gender/DOB correctly matched QT rows for their age bracket, but they
+//                have no recorded PB in ANY of those offered events, filters aside. Expected,
+//                not a bug — e.g. a swimmer newly added with no results yet.
+//   'filtered' — they DO have real PB(s) recorded against offered events, but none of those
+//                PBs satisfy the currently active Course/Stroke/Status filter. This is normal
+//                filter behaviour, not a data problem — e.g. Status=Qualified hides a swimmer
+//                whose best result is Outside. Must never be reported as "no PB recorded".
+function diagnoseZeroRowSwimmer(sw, qtData, ageBracketFn, activeFilters) {
+  activeFilters = activeFilters || {};
+  // Structural check: every QT-offered event/course for this gender+bracket, ignoring the
+  // active Course/Stroke/Status filters entirely, PB or not — this tells us what's actually
+  // true about the swimmer's data, independent of whatever the coach currently has selected.
+  const structuralRows = buildSwimmerRows(sw, qtData, ageBracketFn, '', '', '', true);
+  if (structuralRows.length === 0) {
+    const bracket = ageBracketFn(sw.dob);
+    const dobLooksValid = /^\d{4}-\d{2}-\d{2}$/.test(sw.dob || '') && !isNaN(parseLocalDate(sw.dob).getTime());
+    const genderLooksValid = sw.gender === 'Boys' || sw.gender === 'Girls';
+    let detail = 'no QT rows matched this gender + age bracket for any event';
+    if (!dobLooksValid) detail = `dob "${sw.dob}" doesn't look valid (expected YYYY-MM-DD)`;
+    else if (!genderLooksValid) detail = `gender "${sw.gender}" doesn't match "Boys"/"Girls" exactly`;
+    else if (bracket == null) detail = 'no championship date set for this tab, so age bracket can\'t be calculated';
+    return { reason: 'no-match', detail };
+  }
+
+  const pbRows = structuralRows.filter(r => r.pbSec != null);
+  if (pbRows.length === 0) {
+    return { reason: 'no-pbs', detail: 'no PB recorded for any offered event' };
+  }
+
+  // Has real PB(s) — if they're still not showing, an active filter must be excluding them.
+  // Describe using their actual best status per event, so the message is genuinely informative
+  // rather than a generic "doesn't match your filter".
+  const bestByEvent  = getEventBestStatuses(pbRows);
+  const bestStatuses = [...new Set(Object.values(bestByEvent).map(r => r.status))];
+  const filterParts = [];
+  if (activeFilters.courseFilter) filterParts.push(`Course = ${activeFilters.courseFilter === 'S' ? 'Short Course' : 'Long Course'}`);
+  if (activeFilters.strokeFilter) filterParts.push(`Stroke = ${activeFilters.strokeFilter}`);
+  if (activeFilters.statusFilter) filterParts.push(`Status = ${activeFilters.statusFilter}`);
+  const filterDesc = filterParts.length ? filterParts.join(', ') : 'a course/stroke filter';
+  return {
+    reason: 'filtered',
+    detail: `has ${pbRows.length} PB${pbRows.length === 1 ? '' : 's'} recorded (best: ${bestStatuses.join('/')}) — doesn't match current filter: ${filterDesc}`,
+  };
+}
+
+
 function lookupQT(qtData, gender, ageBracket, event, course) {
   const qtCourse = course === 'S' ? 'Short Course' : 'Long Course';
   return qtData.find(r =>
@@ -1342,8 +1421,26 @@ function buildProgressBar(pbSec, qualify, consider) {
 // ============================================================
 // INFO BANNER
 // ============================================================
+// Describes a championship's date span accurately, given its QT meta. champDate (from
+// getCountyChampsDate/getRegionalChampsDate) is dateTo when both are set — i.e. the LAST
+// day, not "the" day — so this must not be phrased as a single-date event when a range exists.
+function describeChampDates(qtMeta, isPast) {
+  const dateFrom   = qtMeta.dateFrom, dateTo = qtMeta.dateTo;
+  const isRange    = dateFrom && dateTo && dateFrom !== dateTo;
+  const singleDay  = dateFrom && dateTo && dateFrom === dateTo;
+  if (isPast) {
+    if (isRange)   return `took place from ${fmtDate(dateFrom)} to ${fmtDate(dateTo)}`;
+    if (singleDay) return `took place on ${fmtDate(dateTo)}`;
+    if (dateTo)    return `concluded on ${fmtDate(dateTo)}`;  // only the end date is known
+    return `began on ${fmtDate(dateFrom)}`;                    // only the start date is known
+  }
+  if (isRange)   return `taking place from ${fmtDate(dateFrom)} to ${fmtDate(dateTo)}`;
+  if (singleDay) return `taking place on ${fmtDate(dateTo)}`;
+  return `taking place on ${fmtDate(dateTo || dateFrom)}`;
+}
 function buildBanner(isCounty) {
   const champDate = isCounty ? getCountyChampsDate() : getRegionalChampsDate();
+  const qtMeta     = isCounty ? COUNTY_QT_META : REGIONAL_QT_META;
   const label      = isCounty ? 'County' : 'Regional';
   if (!champDate) {
     return `ℹ️ <strong>Age Group note:</strong> No ${label} QT data loaded — Age Groups can't be calculated until a championship date is set. Sync or upload ${label} QT data, or enter a date via the ✏️ Edit Details button on the ${label} QT Editor tab.`;
@@ -1351,10 +1448,11 @@ function buildBanner(isCounty) {
   const champYear  = parseLocalDate(champDate).getFullYear();
   const isPast     = new Date() > parseLocalDate(champDate);
   const seasonYear = getSeasonYear(champDate);
+  const dateDesc   = describeChampDates(qtMeta, isPast);
   if (isPast) {
-    return `ℹ️ <strong>Age Group note:</strong> The ${champYear} ${label} Championships took place on ${fmtDate(champDate)}. Age Groups shown are for the <strong>${seasonYear} season</strong> — calculated as each swimmer's age on 31 December ${seasonYear}. Qualifying and consideration times are from the <strong>${champYear} season</strong> as ${seasonYear} standards have not yet been published.`;
+    return `ℹ️ <strong>Age Group note:</strong> The ${champYear} ${label} Championships ${dateDesc}. Age Groups shown are for the <strong>${seasonYear} season</strong> — calculated as each swimmer's age on 31 December ${seasonYear}. Qualifying and consideration times are from the <strong>${champYear} season</strong> as ${seasonYear} standards have not yet been published.`;
   } else {
-    return `ℹ️ <strong>Age Group note:</strong> Age Groups are calculated as each swimmer's age on 31 December ${champYear}, the year of the ${label} Championships (${fmtDate(champDate)}).`;
+    return `ℹ️ <strong>Age Group note:</strong> Age Groups are calculated as each swimmer's age on 31 December ${champYear}, the year of the ${label} Championships (${dateDesc}).`;
   }
 }
 
@@ -1376,6 +1474,36 @@ function getEventBestStatuses(rows) {
 // ============================================================
 // RENDER TAB
 // ============================================================
+// Builds the "X shown / Y not shown (why)" footer note, shared across every renderTab exit
+// path so the count always reconciles against the full SWIMMERS array when no explicit
+// Gender/Age/Squad/Name filter is active — including former swimmers and merge-hidden
+// swimmers, which previously vanished silently before visibleSwimmers was even computed.
+function buildFooterNote(renderedCount, excludedSwimmers, tabLabel, seasonNote) {
+  let noteHtml = `Showing ${escHtml(tabLabel)} QT standards · ${seasonNote}${renderedCount} swimmer(s) shown.`;
+  if (excludedSwimmers.length === 0) return noteHtml;
+  const bucket = reason => excludedSwimmers.filter(e => e.reason === reason);
+  const noMatch  = bucket('no-match');
+  const former   = bucket('former');
+  const hidden   = bucket('hidden');
+  const filtered = bucket('filtered');
+  const noPbs    = bucket('no-pbs');
+  const listItems = arr => arr.map(e => `<li>${escHtml(e.name)} — <span style="color:var(--text3)">${escHtml(e.detail)}</span></li>`).join('');
+  // Only style the summary as a warning if there's an actual data problem to look at — the
+  // other reasons (former/hidden/filtered/no-pbs) are all expected states, not something broken.
+  const summaryColor = noMatch.length > 0 ? 'var(--gold)' : 'var(--text3)';
+  const summaryIcon  = noMatch.length > 0 ? '⚠️ ' : '';
+  noteHtml += ` · <details style="display:inline; margin-left:4px">
+    <summary style="cursor:pointer; display:inline; color:${summaryColor}">${summaryIcon}${excludedSwimmers.length} not shown (click for why)</summary>
+    <div style="margin-top:8px; font-size:0.85em">
+      ${noMatch.length  ? `<div style="margin-bottom:6px"><strong style="color:var(--red)">${noMatch.length} likely data issue</strong> — dob/gender didn't match any QT row at all, not a "no PB" case:<ul style="margin:4px 0 0 18px">${listItems(noMatch)}</ul></div>` : ''}
+      ${former.length   ? `<div style="margin-bottom:6px"><strong>${former.length} Former Swimmer${former.length===1?'':'s'}</strong> — hidden by default; enable "Show Former Swimmers" or filter Squad = Former Swimmer to view:<ul style="margin:4px 0 0 18px">${listItems(former)}</ul></div>` : ''}
+      ${hidden.length   ? `<div style="margin-bottom:6px"><strong>${hidden.length} hidden</strong> — removed from the Sheet but kept locally under "Hide" merge mode:<ul style="margin:4px 0 0 18px">${listItems(hidden)}</ul></div>` : ''}
+      ${filtered.length ? `<div style="margin-bottom:6px"><strong>${filtered.length} hidden by your current filter</strong> — they have real PBs recorded, just not matching what's selected above:<ul style="margin:4px 0 0 18px">${listItems(filtered)}</ul></div>` : ''}
+      ${noPbs.length    ? `<div><strong>${noPbs.length} genuinely no PB recorded</strong> for any offered event in this tab:<ul style="margin:4px 0 0 18px">${listItems(noPbs)}</ul></div>` : ''}
+    </div>
+  </details>`;
+  return noteHtml;
+}
 function renderTab(prefix) {
   const isCounty    = prefix === 'county';
   const qtData      = isCounty ? COUNTY_QT : REGIONAL_QT;
@@ -1421,6 +1549,22 @@ function renderTab(prefix) {
       return true;
     });
 
+  // Account for swimmers excluded by DEFAULT gates that apply regardless of any filter the
+  // coach has explicitly set — as opposed to Gender/Age/Squad/Name filters, which are
+  // self-evident from the visible filter bar and so aren't individually listed here. These
+  // are the two ways a swimmer can vanish from visibleSwimmers before per-row PB diagnosis
+  // even runs, and previously did so with zero accounting — see buildFooterNote.
+  const excludedSwimmers = [];
+  SWIMMERS.forEach(sw => {
+    if (sw.hidden) {
+      excludedSwimmers.push({ name: sw.name, reason: 'hidden', detail: 'removed from the Sheet but kept locally under "Hide" merge mode' });
+      return;
+    }
+    if (sw.squad === 'Former Swimmer' && !showFormer && squadFilter !== 'Former Swimmer') {
+      excludedSwimmers.push({ name: sw.name, reason: 'former', detail: 'Former Swimmer — hidden by default' });
+    }
+  });
+
   // Stat card counts — per event (not per event+course), using best status across courses
   let qualCount = 0, conCount = 0, outCount = 0;
   const qualNames = new Set(), conNames = new Set(), outNames = new Set();
@@ -1450,6 +1594,11 @@ function renderTab(prefix) {
     renderStatCard('consideration', '🔶', conCount,  'Consideration', conNames)  +
     renderStatCard('outside',       '❌', outCount,  'Outside',       outNames);
 
+  const champDate  = isCounty ? getCountyChampsDate() : getRegionalChampsDate();
+  const qtMeta     = isCounty ? COUNTY_QT_META : REGIONAL_QT_META;
+  const tabLabel   = qtMeta.title || (isCounty ? 'County' : 'Regional');
+  const seasonNote = champDate ? `${parseLocalDate(champDate).getFullYear()} season · ` : '⚠️ no championship date set · ';
+
   // Swimmer cards
   if (qtData.length === 0) {
     updateCollapseBtnVisibility(prefix, false);
@@ -1469,13 +1618,13 @@ function renderTab(prefix) {
         <button class="btn primary" style="margin-top:14px" onclick="showDataModal()">📤 Manage Data</button>
       </div>`;
     }
-    noteEl.textContent = '';
+    noteEl.innerHTML = excludedSwimmers.length > 0 ? buildFooterNote(0, excludedSwimmers, tabLabel, seasonNote) : '';
     return;
   }
   if (visibleSwimmers.length === 0) {
     updateCollapseBtnVisibility(prefix, false);
     listEl.innerHTML = `<div class="empty"><div class="empty-icon">🏊</div><p>No swimmers match the current filters.</p></div>`;
-    noteEl.textContent = '';
+    noteEl.innerHTML = excludedSwimmers.length > 0 ? buildFooterNote(0, excludedSwimmers, tabLabel, seasonNote) : '';
     return;
   }
 
@@ -1488,7 +1637,10 @@ function renderTab(prefix) {
   let html = ''; let renderedCount = 0;
   visibleSwimmers.forEach((sw, idx) => {
     const rows = buildSwimmerRows(sw, qtData, ageFn, courseFilter, strokeFilter, statusFilter, showNoPB);
-    if (rows.length === 0) return;
+    if (rows.length === 0) {
+      excludedSwimmers.push({ name: sw.name, ...diagnoseZeroRowSwimmer(sw, qtData, ageFn, { courseFilter, strokeFilter, statusFilter }) });
+      return;
+    }
     renderedCount++;
 
     const pal       = AVATAR_COLORS[idx % AVATAR_COLORS.length];
@@ -1517,7 +1669,7 @@ function renderTab(prefix) {
         <div class="swimmer-avatar" style="background:${pal.bg};color:${pal.color}">${escHtml(initials(sw.name))}</div>
         <div>
           <div class="swimmer-name-line"><span class="swimmer-name-text">${escHtml(sw.name)}</span></div>
-          <div class="swimmer-meta"><span class="col-full">${sw.gender} &middot; </span><span class="age-group-meta">Age Group <strong>${bracket}</strong></span><div class="swimmer-pills"><span class="gender-pill-mobile gender-pill-${sw.gender==='Boys'?'boys':'girls'}">${sw.gender==='Boys'?'&#9794;':'&#9792;'}</span>${sw.squad?`<span class="squad-badge ${squadClass}">${escHtml(sw.squad)}</span>`:''}<span class="badge source-badge-${sw.source === 'sheet' ? 'sheet' : 'local'} col-full" title="${sw.source === 'sheet' ? 'Synced from Google Sheets' : 'Added locally'}">${sw.source === 'sheet' ? '📊' : '✏️'}</span></div></div>
+          <div class="swimmer-meta"><span class="col-full">${escHtml(sw.gender)} &middot; </span><span class="age-group-meta">Age Group <strong>${bracket}</strong></span><div class="swimmer-pills"><span class="gender-pill-mobile gender-pill-${sw.gender==='Boys'?'boys':'girls'}">${sw.gender==='Boys'?'&#9794;':'&#9792;'}</span>${sw.squad?`<span class="squad-badge ${squadClass}">${escHtml(sw.squad)}</span>`:''}<span class="badge source-badge-${sw.source === 'sheet' ? 'sheet' : 'local'} col-full" title="${sw.source === 'sheet' ? 'Synced from Google Sheets' : 'Added locally'}">${sw.source === 'sheet' ? '📊' : '✏️'}</span></div></div>
         </div>
         <div class="swimmer-badges">${summaryBadges}</div>
         <div class="swimmer-actions" onclick="event.stopPropagation()">
@@ -1582,12 +1734,7 @@ function renderTab(prefix) {
 
   listEl.innerHTML = html || `<div class="empty"><div class="empty-icon">🔍</div><p>No results match the current filters.</p></div>`;
   updateCollapseBtnVisibility(prefix, renderedCount > 0);
-
-  const champDate = isCounty ? getCountyChampsDate() : getRegionalChampsDate();
-  const qtMeta    = isCounty ? COUNTY_QT_META : REGIONAL_QT_META;
-  const tabLabel  = qtMeta.title || (isCounty ? 'County' : 'Regional');
-  const seasonNote = champDate ? `${parseLocalDate(champDate).getFullYear()} season · ` : '⚠️ no championship date set · ';
-  noteEl.textContent = `Showing ${tabLabel} QT standards · ${seasonNote}${renderedCount} swimmer(s) shown.`;
+  noteEl.innerHTML = buildFooterNote(renderedCount, excludedSwimmers, tabLabel, seasonNote);
 }
 
 function renderCounty()   { renderTab('county'); }
@@ -1607,10 +1754,14 @@ function toggleCollapseAll(prefix) {
   const btn = document.getElementById(prefix + 'CollapseBtn');
   if (btn) btn.textContent = collapseAllState[prefix] ? '⊞ Expand All' : '⊟ Collapse All';
 }
-// Show/hide the Collapse All button based on whether any swimmer cards are actually rendered.
+// Show/hide the Collapse All button based on whether any swimmer cards are actually rendered,
+// and keep its label in sync with collapseAllState (covers every entry point that re-renders
+// the tab — page load, filter changes, sync/upload completion — not just an explicit toggle click).
 function updateCollapseBtnVisibility(prefix, hasCards) {
   const btn = document.getElementById(prefix + 'CollapseBtn');
-  if (btn) btn.style.display = hasCards ? '' : 'none';
+  if (!btn) return;
+  btn.style.display = hasCards ? '' : 'none';
+  btn.textContent = collapseAllState[prefix] ? '⊞ Expand All' : '⊟ Collapse All';
 }
 function resetFilters(prefix) {
   const p = prefix === 'county' ? 'c' : 'r';
@@ -1624,9 +1775,9 @@ function resetFilters(prefix) {
   if (nameEl) nameEl.value = '';
   const cb = document.getElementById(p + 'ShowNoPB');
   if (cb) cb.checked = false;
-  collapseAllState[prefix] = false;
+  collapseAllState[prefix] = true;
   const btn = document.getElementById(prefix + 'CollapseBtn');
-  if (btn) btn.textContent = '⊟ Collapse All';
+  if (btn) btn.textContent = '⊞ Expand All';
   renderTab(prefix);
 }
 
@@ -1638,6 +1789,10 @@ function showTab(name, btn) {
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
   document.getElementById('tab-' + name).classList.add('active');
   if (btn) btn.classList.add('active');
+  // Enforce Collapse All as the default state every time a swimmer-list tab is opened —
+  // a coach expanding a card while browsing shouldn't leave every card expanded next time
+  // they switch back to this tab.
+  if (name === 'county' || name === 'regional') collapseAllState[name] = true;
   if (name === 'county')          renderCounty();
   if (name === 'regional')         renderRegional();
   if (name === 'county-editor')    { updateMetaDisplay('county');   renderQTEditor('county'); }
@@ -1719,7 +1874,7 @@ function refreshDataModalStatus() {
   // Last-sync timestamps
   const setLastSync = (key, selector) => {
     const ts = localStorage.getItem(key);
-    const text = ts ? new Date(ts).toLocaleString() : 'Never';
+    const text = ts ? fmtDateTime(ts) : 'Never';
     document.querySelectorAll(selector).forEach(el => { el.textContent = text; });
   };
   setLastSync('coach_SHEETS_LAST_SYNC',      '#syncLastTimeInline');
@@ -1839,7 +1994,7 @@ function loadSwimmersFile() {
 }
 function applySwimmersUpload(clean, mode) {
   if (mode === 'merge') {
-    const result = mergeSwimmers(clean, 'keep'); // local-only swimmers always kept on manual merge
+    const result = mergeSwimmers(clean, 'keep', { sourceIsAuthoritative: false }); // uploaded file is not a full-source snapshot — never drop existing swimmers absent from it
     localStorage.setItem('coach_SWIMMERS', JSON.stringify(SWIMMERS));
     setDataStatus('success', `✅ Merged — ${result.added} added, ${result.updated} updated, ${result.kept} local kept.`);
   } else {
@@ -2230,9 +2385,9 @@ function renderQTEditor(prefix) {
       const _ec  = r.course === 'Short Course' ? 'S' : 'L';
       const _cl  = r.course === 'Short Course' ? 'SC' : 'LC';
       return `<tr style="opacity:0.5;background:var(--surface2)">
-        <td><span class="badge ${_eg}">${r.gender}</span></td>
+        <td><span class="badge ${_eg}">${escHtml(r.gender)}</span></td>
         <td><span class="badge ${_ec}">${_cl}</span></td>
-        <td style="color:var(--text3);font-style:italic">${r.event}</td>
+        <td style="color:var(--text3);font-style:italic">${escHtml(r.event)}</td>
         <td colspan="2" style="color:var(--text3);font-size:0.75rem;font-style:italic">Not offered for this age group</td>
         <td><button class="sw-action-btn" title="Delete row"
           onclick="deleteQTRow('${prefix}','${escAttr(r.gender)}','${escAttr(r.course)}','${escAttr(r.event)}','${escAttr(r.age)}')">🗑️</button></td>
@@ -2245,9 +2400,9 @@ function renderQTEditor(prefix) {
     const invClass = inverted ? ' inverted' : '';
     const invTitle = inverted ? ' ⚠️ Consider time is faster than Qualify — please review' : '';
     return `<tr>
-      <td><span class="badge ${r.gender === 'Boys' ? 'S' : 'L'}">${r.gender}</span></td>
+      <td><span class="badge ${r.gender === 'Boys' ? 'S' : 'L'}">${escHtml(r.gender)}</span></td>
       <td><span class="badge ${r.course === 'Short Course' ? 'S' : 'L'}">${r.course === 'Short Course' ? 'SC' : 'LC'}</span></td>
-      <td style="font-weight:600;color:var(--text)">${r.event}</td>
+      <td style="font-weight:600;color:var(--text)">${escHtml(r.event)}</td>
       <td>
         <input type="text" class="qt-inline-input${invClass}" value="${qv}"
           placeholder="e.g. 34.50" title="Qualifying time — format: 1:05.32 or 34.50${invTitle}"
@@ -2462,7 +2617,7 @@ window.addEventListener('DOMContentLoaded', () => {
   const lastSync = localStorage.getItem('coach_SHEETS_LAST_SYNC');
   if (lastSync) {
     document.querySelectorAll('#syncLastTime').forEach(el => {
-      el.textContent = new Date(lastSync).toLocaleString();
+      el.textContent = fmtDateTime(lastSync);
     });
   }
   // Pre-fill sync token from localStorage
@@ -2503,6 +2658,11 @@ function showSyncModal() {
   const statusEl = document.getElementById('syncStatus');
   if (statusEl) { statusEl.style.display = 'none'; statusEl.className = ''; statusEl.textContent = ''; }
   if (_syncCloseTimer) { clearInterval(_syncCloseTimer); _syncCloseTimer = null; }
+  // Re-read the last-sync timestamp from localStorage every time the modal opens, rather than
+  // relying on whatever was set once at page load — otherwise a Clear Data action (which does
+  // correctly remove the localStorage key) leaves this specific display stale until next reload.
+  const lastSyncEl = document.getElementById('syncLastTime');
+  if (lastSyncEl) lastSyncEl.textContent = fmtDateTime(localStorage.getItem('coach_SHEETS_LAST_SYNC'));
   document.getElementById('syncModal').classList.add('open');
 }
 function hideSyncModal() {
@@ -2586,8 +2746,10 @@ async function startSync() {
     if (!sheetSwimmers) throw new Error('Unexpected data format from Apps Script.');
 
     // Merge into SWIMMERS using the correct function (updates SWIMMERS in place)
+    // sourceIsAuthoritative: true — this IS a complete sheet snapshot, so previously-
+    // synced swimmers absent from it are genuinely gone from the Sheet and mergeMode applies.
     const mergeMode = document.getElementById('syncMergeMode')?.value || 'keep';
-    const result    = mergeSwimmers(sheetSwimmers, mergeMode);
+    const result    = mergeSwimmers(sheetSwimmers, mergeMode, { sourceIsAuthoritative: true });
 
     // Persist to the correct localStorage key
     localStorage.setItem('coach_SWIMMERS', JSON.stringify(SWIMMERS));
@@ -2595,7 +2757,7 @@ async function startSync() {
     checkLocalStorageSize();
 
     const lastSyncEl = document.getElementById('syncLastTime');
-    if (lastSyncEl) lastSyncEl.textContent = new Date().toLocaleString();
+    if (lastSyncEl) lastSyncEl.textContent = fmtDateTime(new Date().toISOString());
 
     // Build contextual success message
     const noQT = COUNTY_QT.length === 0 && REGIONAL_QT.length === 0;
@@ -2644,10 +2806,22 @@ async function startSync() {
 }
 
 // ── Merge logic ──────────────────────────────────────────────
-// Merges Sheet swimmers into the local SWIMMERS array.
+// Merges an incoming swimmer set into the local SWIMMERS array.
 // Matching: name (case-insensitive) + dob.
 // mergeMode: 'keep' | 'hide' | 'remove' — controls local-only swimmers.
-function mergeSwimmers(sheetSwimmers, mergeMode) {
+// opts.sourceIsAuthoritative (default true): true only when `sheetSwimmers` is a
+//   COMPLETE, authoritative snapshot of a source (e.g. a full Google Sheets sync).
+//   In that case, existing swimmers tagged source:'sheet' who are absent from the
+//   incoming set are treated as removed-upstream and mergeMode applies to them.
+//   For a manual file upload, the incoming set is just whatever was in that file —
+//   not a full snapshot of anything — so callers MUST pass false here, or
+//   previously-synced swimmers not present in the uploaded file get silently
+//   dropped instead of kept. (This was the root cause of a real bug: uploading a
+//   file to merge with 62 Sheet-synced swimmers made all 62 disappear, because
+//   every one of them has source:'sheet' and none of them were in the upload.)
+function mergeSwimmers(sheetSwimmers, mergeMode, opts) {
+  opts = opts || {};
+  const sourceIsAuthoritative = opts.sourceIsAuthoritative !== false;
   const stats    = { added: 0, updated: 0, kept: 0, hidden: 0, removed: 0 };
   const localKey = sw => `${(sw.name || '').toLowerCase().trim()}|${sw.dob}`;
   const localMap = {};
@@ -2656,7 +2830,7 @@ function mergeSwimmers(sheetSwimmers, mergeMode) {
   sheetSwimmers.forEach(sw => { sheetMap[localKey(sw)] = sw; });
   const merged   = [];
 
-  // 1. All Sheet swimmers — always included
+  // 1. All incoming swimmers — always included
   sheetSwimmers.forEach(sheetSw => {
     const key      = localKey(sheetSw);
     const existing = localMap[key];
@@ -2667,7 +2841,7 @@ function mergeSwimmers(sheetSwimmers, mergeMode) {
         dob:    sheetSw.dob,
         gender: sheetSw.gender,
         squad:  sheetSw.squad || existing.squad,
-        source: 'sheet',
+        source: sourceIsAuthoritative ? 'sheet' : (existing.source || 'local'),
         hidden: false,
         pbs:    mergePbs(existing.pbs || [], sheetSw.pbs || []),
       });
@@ -2678,20 +2852,34 @@ function mergeSwimmers(sheetSwimmers, mergeMode) {
     }
   });
 
-  // 2. Local-only swimmers (not in Sheet)
+  // 2. Existing swimmers not present in the incoming set.
+  //    When sourceIsAuthoritative, swimmers already tagged 'sheet' are assumed to
+  //    have been intentionally removed upstream, so mergeMode governs them too.
+  //    Otherwise (manual upload), every existing swimmer not in the incoming file
+  //    is unconditionally kept — the upload was never claiming to be a full source
+  //    snapshot, so absence from it must never imply removal.
   SWIMMERS.forEach(localSw => {
-    if (localSw.source === 'sheet') return;
+    if (sourceIsAuthoritative && localSw.source === 'sheet') {
+      const key = localKey(localSw);
+      if (sheetMap[key]) return; // already handled in step 1
+      if (mergeMode === 'remove') { stats.removed++; return; }
+      if (mergeMode === 'hide')   { merged.push({ ...localSw, source: 'local', hidden: true });  stats.hidden++; return; }
+      merged.push({ ...localSw, source: 'local', hidden: false }); stats.kept++;
+      return;
+    }
+    if (!sourceIsAuthoritative) {
+      const key = localKey(localSw);
+      if (sheetMap[key]) return; // already handled in step 1
+      merged.push({ ...localSw });
+      stats.kept++;
+      return;
+    }
+    // sourceIsAuthoritative but this swimmer isn't tagged 'sheet' (local-only, e.g. manually added)
     const key = localKey(localSw);
     if (sheetMap[key]) return;
-    if (mergeMode === 'remove') {
-      stats.removed++;
-    } else if (mergeMode === 'hide') {
-      merged.push({ ...localSw, source: 'local', hidden: true });
-      stats.hidden++;
-    } else {
-      merged.push({ ...localSw, source: 'local', hidden: false });
-      stats.kept++;
-    }
+    if (mergeMode === 'remove') { stats.removed++; }
+    else if (mergeMode === 'hide') { merged.push({ ...localSw, source: 'local', hidden: true }); stats.hidden++; }
+    else { merged.push({ ...localSw, source: 'local', hidden: false }); stats.kept++; }
   });
 
   merged.sort((a, b) => a.name.localeCompare(b.name));
