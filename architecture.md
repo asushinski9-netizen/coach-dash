@@ -1,8 +1,10 @@
-# Coach Dashboard — Architecture (v2.4)
+# Coach Dashboard — Architecture (v2.5)
 
 ## Overview
 
-Single HTML file (`index.html`, ~2,930 lines). No build step, no dependencies beyond the CDN-free vanilla JS in the page itself. All state lives in `localStorage`. Logo is embedded as a base64 data URI so the file is fully self-contained. Three independent data sources — Swimmers (Google Sheets sync), County QT, Regional QT (GitHub sync) — each syncable, uploadable, downloadable, and clearable from one "📤 Manage Data" modal.
+Single HTML file (`index.html`, ~3,550 lines). No build step, no dependencies beyond the CDN-free vanilla JS in the page itself — including the new Overview tab's charts, which are hand-rolled SVG/CSS rather than a charting library, to preserve that self-contained architecture. All state lives in `localStorage`. Logo is embedded as a base64 data URI. Three independent data sources — Swimmers (Google Sheets sync), County QT, Regional QT (GitHub sync) — each syncable, uploadable, downloadable, and clearable from one "📤 Manage Data" modal.
+
+**The Overview tab is now the default tab on page load**, replacing County QT. County/Regional/editor tabs still render lazily on first switch to each.
 
 ---
 
@@ -13,9 +15,11 @@ Single HTML file (`index.html`, ~2,930 lines). No build step, no dependencies be
   <style>          CSS variables, layout, component styles, mobile overrides
 </head>
 <body>
-  .header          Sticky top bar with logo and club name
-  .tabs            Tab navigation (County QT / Regional QT / two Editor tabs, desktop only)
+  .header          Sticky top bar with logo and club name (tagline drops to its own row on mobile)
+  .tabs            Tab navigation — Overview / County QT / Regional QT / two Editor tabs (desktop only)
+                   Mobile: Overview takes the full first row, County+Regional pair up on row 2
   .container
+    #tab-overview       Overview — "coach's morning briefing" (NEW, v2.5, default active tab)
     #tab-county         County QT panel
     #tab-regional       Regional QT panel
     #tab-county-editor  County QT Editor (desktop only)
@@ -27,37 +31,76 @@ Single HTML file (`index.html`, ~2,930 lines). No build step, no dependencies be
     #addSwimmerModal   Add / Edit Swimmer
   FAB speed dial     ＋ → 👤 Add Swimmer / 📤 Manage Data / ⚙️ Settings / 🌙 Theme
 <script>
-  1.  CONFIGURATION        GitHub QT sync URLs, Apps Script URL constant, ALL_EVENTS, avatar colours
+  1.  CONFIGURATION        GitHub QT sync URLs, Apps Script URL constant, ALL_EVENTS, avatar colours,
+                           STROKE_ABBR / STROKE_COLOR (v2.5 — see Overview Tab section)
   2.  MODULE-LEVEL UTILS   STATUS_RANK, escAttr (onclick-attribute escaping)
   3.  DATA GLOBALS         SWIMMERS, COUNTY_QT, REGIONAL_QT, QT_META objects, parseQTFull, lsGet
-  4.  UTILITIES            timeToSec, secToTime, fmtDate, fmtDateTime, parseLocalDate, escHtml, initials
+  4.  UTILITIES            timeToSec, secToTime, fmtDate, fmtDateShort (v2.5), fmtDateTime,
+                           parseLocalDate, escHtml, initials, splitEventDistance (v2.5)
   5.  AGE BRACKETS         getSeasonYear, getCountyChampsDate/getRegionalChampsDate,
-                           getCountyAgeBracket, getRegionalAgeBracket
+                           getCountyAgeBracket, getRegionalAgeBracket, getCurrentAge (v2.5 — plain
+                           calendar age, independent of QT dates, used only by Squad Composition)
   6.  QT LOOKUP            lookupQT, calcStatus, sanitiseSwimmersData
-  7.  DIAGNOSTIC           diagnoseZeroRowSwimmer — why a swimmer's card doesn't render
+  7.  DIAGNOSTIC           diagnoseZeroRowSwimmer — why a swimmer's card doesn't render (County/Regional tabs)
   8.  BUILD SWIMMER ROWS   buildSwimmerRows
   9.  PROGRESS BAR         buildProgressBar
   10. INFO BANNER          buildBanner, describeChampDates
   11. EVENT-LEVEL STATUS   getEventBestStatuses
   12. RENDER TAB           buildFooterNote, renderTab (shared), renderCounty, renderRegional
-  13. TAB SWITCHING        showTab, toggleCollapseAll, toggleSwimmer, updateCollapseBtnVisibility
-  14. THEME                toggleTheme, applyTheme
-  15. DATA: LOAD/SAVE      showDataModal, sanitiseSwimmersData, applySwimmersUpload,
+  13. OVERVIEW TAB (v2.5)  See dedicated section below — ~450 lines
+  14. TAB SWITCHING        showTab, toggleCollapseAll, toggleSwimmer, updateCollapseBtnVisibility
+  15. THEME                toggleTheme, applyTheme
+  16. DATA: LOAD/SAVE      showDataModal, sanitiseSwimmersData, applySwimmersUpload,
                            applyQTUpload, resolveDataConflict, downloadSwimmers, clearData
-  16. LOCALSTORAGE GUARD   checkLocalStorageSize
-  17. ADD SWIMMER          showAddSwimmerModal, addPBRow
-  18. EDIT/DELETE SWIMMER  editSwimmer, deleteSwimmer, saveSwimmer
-  19. QT EDITOR SAVE        saveQTToStorage
-  20. QT EDITOR META       toggleMetaEdit, cancelMetaEdit, saveMetaEdit, updateMetaDisplay
-  21. QT EDITOR TABLE       resetQTFilters, renderQTEditor, saveQTEdit, deleteQTRow
-  22. QT EDITOR ADD ROW     addQTRow, saveNewQTRow
-  23. QT EDITOR DOWNLOAD    downloadQTData
-  24. FAB                  toggleFab, openFab, closeFab, fabToggleTheme, fabShowDataModal, ...
-  25. KEYBOARD              ESC handler
-  26. LOGO DATA URI         const LOGO_DATA_URI (base64)
-  27. INIT                  DOMContentLoaded — logo, theme, restore last-sync display, renderCounty
-  28. GOOGLE SHEETS SYNC    startSync, mergeSwimmers, mergePbs, showSyncModal, showSettingsModal
+  17. LOCALSTORAGE GUARD   checkLocalStorageSize
+  18. ADD SWIMMER          showAddSwimmerModal, addPBRow
+  19. EDIT/DELETE SWIMMER  editSwimmer, deleteSwimmer, saveSwimmer
+  20. QT EDITOR (SAVE/META/TABLE/ADD ROW/DOWNLOAD)  saveQTToStorage, toggleMetaEdit,
+                           saveMetaEdit, updateMetaDisplay, renderQTEditor, saveQTEdit,
+                           deleteQTRow, addQTRow, saveNewQTRow, downloadQTData
+  21. FAB                  toggleFab, openFab, closeFab, fabToggleTheme, fabShowDataModal, ...
+  22. KEYBOARD              ESC handler
+  23. LOGO DATA URI         const LOGO_DATA_URI (base64)
+  24. INIT                  DOMContentLoaded — logo, theme, restore last-sync display, renderOverview()
+  25. GOOGLE SHEETS SYNC    startSync, mergeSwimmers, mergePbs, showSyncModal, showSettingsModal
 ```
+
+---
+
+## Overview Tab (new in v2.5)
+
+A squad-wide, **unfiltered** "coach's morning briefing" — no Squad/Gender filter bar of its own, deliberately, since it's meant to be a single glance at the whole squad rather than another filterable list like County/Regional. Three sections, in this order: **Squad Composition** (top), **Hot Right Now**, **The Bubble List**.
+
+### Shared building blocks
+
+- **`getOverviewEligibleSwimmers()`** — the default exclusion gate (no `hidden`, not `'Former Swimmer'`) used by every section except where a section has its own explicit override (see Bubble List below).
+- **`hiddenReasonDetail(sw)`** — short label + full tooltip for a swimmer excluded by a default gate (`Hidden` / `Former`), used when a section chooses to include them anyway.
+- **`splitEventDistance(event)`** + **`STROKE_ABBR`** + **`STROKE_COLOR`** — splits an `ALL_EVENTS` string ("50 Free") into `{distance, stroke}`; maps stroke to a 2–3 letter mobile abbreviation (via the dashboard's existing `.col-full`/`.col-abbr` responsive-text pattern) and to a left-accent-bar color, reusing hex values already established elsewhere in the app (squad/gender colors) rather than a new palette.
+- **`renderPersonCard(name, idx, entries, renderEntry, hideReason, expandedSet, toggleFnName)`** — the shared per-swimmer card used by both Hot Right Now and The Bubble List. Shows only `entries[0]` by default (the caller is responsible for pre-sorting entries so the most relevant one is first); a `▾ +N more` button reveals the rest via the passed-in `expandedSet` (a `Set` of expanded swimmer names) and `toggleFnName`. Cards get an `.expanded` class (light-blue background tint, `--accent`-tinted border) while open.
+- **Per-entry two-column row** (`.ov-entry-stat`): a small muted "context" block on the left (what was swum), a grouped "result" block on the right (a bold hero stat with a smaller caption directly beneath it — NOT spread apart with `justify-content: space-between`, which was tried and read as scattered/disconnected). A colored left accent bar (via `STROKE_COLOR`) ties the two columns together visually.
+- **Section-level card cap**: both Hot Right Now and The Bubble List cap at `HOT_CARD_CAP`/`BUBBLE_CARD_CAP` (10 each — 2 full rows of 5 on desktop). A `hotShowAll`/`bubbleShowAll` boolean (independent of the per-card expand state) plus `toggleHotShowAll()`/`toggleBubbleShowAll()` let a "▾ Show all" / "▴ Show fewer" link on the capped-count note reveal or re-collapse the full list.
+
+### Section 1 — Squad Composition
+
+Three matching interactive pie/donut cards (`renderCompChart(chartId, title, items)`, shared by all three): **By Gender**, **By Squad**, **By Age**. Each card's legend sits to the right of its chart and is clickable — `toggleCompChartKey(chartId, key)` toggles a key in/out of `compChartExcluded[chartId]` (a per-chart `Set`, session-only), and the remaining slices' percentages recompute against whatever's still visible (not the original grand total), with the center total updating to match. A chart with more than 6 legend items (in practice, Age) automatically gets a 2-column legend (`.multi-col`) instead of a scrollable single column.
+
+Age is bucketed by **plain calendar age today** (`getCurrentAge`), not the County/Regional QT age bracket — those only exist once QT metadata (championship dates) is loaded and differ from each other, which would make this section unusable with no QT data loaded at all.
+
+A small transparency note (`renderOverviewExclusionNote`) beneath Composition states how many Former/hidden swimmers aren't counted above.
+
+### Section 2 — Hot Right Now
+
+`collectRecentPbs(limit, cutoffDate)` → `groupRecentPbsBySwimmer()` → `renderHotList()`. PBs with no recorded `date` are excluded (undated entries can't be placed in a chronological feed). A configurable day cutoff (`#hotCutoffDays`, default 30 — `getHotCutoffDays()`/`getHotCutoffDate()`) filters the pool before grouping; the empty state distinguishes "nothing recorded, ever" from "nothing in this particular window" (the latter nudges the coach to widen the window).
+
+Ordering: most-recent-PB-date first, then **most PBs on/around that date** (not name) as the tiebreak — a plain date-only sort degenerates to alphabetical whenever several swimmers share a gala date, which is the normal case, not the exception. This was deliberately chosen over ranking by "fastest for their age," which would just re-surface the same standout swimmers every time rather than reflecting genuinely recent activity.
+
+### Section 3 — The Bubble List
+
+`buildBubbleList(marginPercent, includeHidden)` → `groupBubbleEntriesBySwimmer()` → `renderBubbleList()`. Swimmers with a real, recorded PB within a configurable `%` margin (`#bubbleMargin`, default 5) of a County or Regional QT they haven't yet hit (`status` is `Consideration` or `Outside`, `gapQ > 0`). An "Include hidden / Former Swimmers" checkbox (`#bubbleIncludeHidden`) overrides `getOverviewEligibleSwimmers()` with the full `SWIMMERS` array when checked, tagging each included swimmer with `hiddenReasonDetail()`.
+
+Sort: smallest gap % first (a swimmer's own entries are naturally gap-ascending as a consequence of `buildBubbleList`'s global sort — see inline comment), tiebroken by most bubble opportunities (not name).
+
+Displayed stat: the actual **time difference in seconds and the QT cutoff itself** ("0.12s off" / "QT 2:24.00") — not a percentage or a PB-vs-QT comparison, both tried and replaced per user feedback. No leading `+` sign on the time difference: every entry here is by definition still short of qualifying, so a bare sign invited the wrong reading (faster vs. further away). Meta line is two rows — championship type (County/Regional) on top, event + course underneath — rather than one run-on line.
 
 ---
 
@@ -76,14 +119,16 @@ Two complete variable sets — light (`:root`) and dark (`body.dark`):
 --header-start, --header-end               Header gradient
 ```
 
+The Overview tab's stroke/squad/gender accent colors (`STROKE_COLOR`, `SQUAD_COLORS`, `GENDER_COLORS`) are plain JS hex constants, not CSS variables — deliberately reusing values already established elsewhere (squad badges, gender pills) rather than introducing a parallel palette. Expanded-card and info-banner tint backgrounds use an `rgba()` overlay on the accent color with a separate `body.dark` override, the same pattern used for the info banner since v1.0.
+
 ---
 
 ## Responsive Breakpoints
 
 | Breakpoint | Behaviour |
 |---|---|
-| ≤500 px (mobile) | Tabs wrap; stat cards compact; filter bar becomes grid; progress column hidden; gender pill; swimmer badges stack; QT editor tabs hidden |
-| >500 px (desktop) | Full layout; QT editor tabs visible |
+| ≤500 px (mobile) | Header tagline drops to its own row; Overview tab takes the full first row, County/Regional pair up on row 2; tabs wrap; stat cards compact; filter bar becomes grid; progress column hidden; gender pill; swimmer badges stack; QT editor tabs hidden; Overview card grids go 2-up; stroke names abbreviate (FR/BK/BR/FLY/IM) |
+| >500 px (desktop) | Full layout; QT editor tabs visible; Overview card grids go 5-up |
 
 ---
 
@@ -96,21 +141,20 @@ COUNTY_QT (array) + COUNTY_QT_META (object)
 REGIONAL_QT (array) + REGIONAL_QT_META (object)
 SWIMMERS (array)
   ↓
-renderTab(prefix)
+renderOverview()                        — called on load and after every data-changing action
+  → renderComposition()                 — 3 pie/donut cards, session-only toggle state
+  → renderHotList()                     — card grid, session-only expand + show-all state
+  → renderBubbleList()                  — card grid, session-only expand + show-all state
+  → renderOverviewExclusionNote()
+
+renderTab(prefix)                       — County/Regional, unchanged from v2.4
   → visibleSwimmers = SWIMMERS filtered by hidden/Former-gate/squad/gender/age/name
-  → excludedSwimmers seeded here with 'hidden' / 'former' reasons (default gates,
-    independent of any explicit filter — see Diagnostic section below)
   → buildSwimmerRows(swimmer, qtData, ageFn, ...) per visible swimmer
       → lookupQT → calcStatus
-      → if zero rows: diagnoseZeroRowSwimmer() adds a 'no-match' / 'no-pbs' / 'filtered' entry
-  → getEventBestStatuses(rows)      — best status per event across SC+LC
-  → renderStatCards                 — 3 top stat cards (swimmer-level counts)
-  → swimmer card template           — per swimmer: badges + table
-      → buildProgressBar            — per event+course row
-  → buildFooterNote(renderedCount, excludedSwimmers, tabLabel, seasonNote)
-      — shared across every renderTab exit path (empty-QT, empty-filtered, and the
-        main render), so "not shown" accounting is consistent everywhere, not just
-        on the happy path
+      → if zero rows: diagnoseZeroRowSwimmer()
+  → getEventBestStatuses(rows)
+  → renderStatCards / swimmer card template / buildProgressBar
+  → buildFooterNote(...)
 ```
 
 ### QT Storage
@@ -120,90 +164,41 @@ coach_COUNTY_QT_FULL   = { meta: {title, dateFrom, dateTo}, times: [...] }
 coach_REGIONAL_QT_FULL = { meta: {title, dateFrom, dateTo}, times: [...] }
 ```
 
-`parseQTFull()` accepts both this format and the legacy plain-array format.
+`parseQTFull()` accepts both this format and the legacy plain-array format. **No schema changes in v2.5** — the Overview tab reads existing `SWIMMERS`/`COUNTY_QT`/`REGIONAL_QT` structures only.
 
 ---
 
-## Key Business Logic
+## Key Business Logic (unchanged from v2.4 unless noted)
 
 ### Age bracket calculation
 
-Championship dates are **not hardcoded** (removed in v2.3). `getCountyChampsDate()`/`getRegionalChampsDate()` read `QT_META.dateTo`, falling back to `dateFrom`, returning `''` if neither is set — in which case age-bracket functions return `null` rather than computing against an invalid date, and `buildBanner()` shows an explicit "can't calculate Age Groups" message.
-
-```
-getSeasonYear(champDate)
-  → if today > champDate: return champDate.year + 1   (next season)
-  → else: return champDate.year
-
-getCountyAgeBracket(dob)    → ≤11 → "10+11", ≥17 → "17+", else String(age)
-getRegionalAgeBracket(dob)  → ≤12 → "11/12", ≥18 → "18+", else String(age)
-```
-
-### Championship date display (`describeChampDates`, added v2.4)
-
-`champDate` (from `getCountyChampsDate`/`getRegionalChampsDate`) is `dateTo` when both dates are set — i.e. the **last** day, not "the" day of a potentially multi-day event. `describeChampDates(qtMeta, isPast)` produces accurate phrasing for five distinct shapes, each in past- and upcoming-tense:
-
-| Shape | Phrasing |
-|---|---|
-| `dateFrom` + `dateTo`, different | "took place from 7 Feb to 15 Feb" |
-| `dateFrom` + `dateTo`, same (genuine single day) | "took place on 15 Feb" |
-| only `dateTo` known | "concluded on 15 Feb" |
-| only `dateFrom` known | "began on 7 Feb" |
-
-Used by `buildBanner()` in both its past-event and upcoming-event branches.
+Championship dates are **not hardcoded** — `getCountyChampsDate()`/`getRegionalChampsDate()` read `QT_META.dateTo`, falling back to `dateFrom`, returning `''` if neither is set. Used by County/Regional tabs and their age brackets. The Overview tab's Squad Composition deliberately does **not** use this — see "Section 1" above.
 
 ### Status precedence
 
-`STATUS_RANK`: `Qualified(0) > Consideration(1) > Outside(2) > No PB(3) > No Data(4)`. `getEventBestStatuses(rows)` returns the best status per event name across all courses — used for swimmer card summary badges, top stat card counts, and row border colour.
+`STATUS_RANK`: `Qualified(0) > Consideration(1) > Outside(2) > No PB(3) > No Data(4)`.
 
 ### Inverted QT data guard
 
-`calcStatus` and `buildProgressBar` normalise `qualify`/`consider` via `Math.min`/`Math.max` before any comparison, defending against source data where `consider < qualify`.
+`calcStatus` and `buildProgressBar` normalise `qualify`/`consider` via `Math.min`/`Math.max`.
 
-### "Not shown" diagnostic (`diagnoseZeroRowSwimmer`, `buildFooterNote` — added/extended throughout v2.4)
+### "Not shown" diagnostic (County/Regional tabs only)
 
-A swimmer's whole card is omitted (not shown as "no PB," just absent) whenever `buildSwimmerRows()` returns zero rows for them. Historically this happened silently. As of v2.4, every exclusion path is categorised and surfaced in an expandable footer note per tab:
-
-| Reason | Meaning | Where computed |
-|---|---|---|
-| `no-match` | Zero QT rows matched this gender+age-bracket combination at all — most likely a malformed `dob` or a `gender` value that isn't exactly `"Boys"`/`"Girls"` (data problem, not a "no PB" case) | `diagnoseZeroRowSwimmer`, on swimmers within `visibleSwimmers` |
-| `no-pbs` | QT rows matched, but zero real PBs recorded against any of them | `diagnoseZeroRowSwimmer` |
-| `filtered` | Real PB(s) recorded, but none satisfy the currently active Course/Stroke/Status filter — described using their actual best status, not a generic message | `diagnoseZeroRowSwimmer`, given `{ courseFilter, strokeFilter, statusFilter }` |
-| `former` | `squad === 'Former Swimmer'`, hidden by the default gate (independent of any filter) | seeded directly from `SWIMMERS`, before `visibleSwimmers` is computed |
-| `hidden` | `sw.hidden === true` — demoted to local-only and hidden by a Sheets sync "Hide" merge | seeded directly from `SWIMMERS`, before `visibleSwimmers` is computed |
-
-`former`/`hidden` are seeded from the full `SWIMMERS` array specifically because they're excluded from `visibleSwimmers` one step *before* the other three categories are ever evaluated — a swimmer hidden by these gates never reaches the per-row diagnostic at all unless accounted for separately. Explicit Gender/Age/Squad/Name-search filter exclusions are deliberately **not** tracked here — those are self-evident from the visible filter bar the coach just set, unlike a default gate active even with no filters applied.
-
-`buildFooterNote()` only applies the alarming gold/⚠️ summary styling when `no-match` entries exist (an actual problem to investigate); every other reason renders in neutral grey, since they're all expected states.
-
-### Former Swimmer gate
-
-```
-if (!showFormer && squadFilter !== 'Former Swimmer' && sw.squad === 'Former Swimmer')
-  → skip swimmer
-```
-
-### `mergeSwimmers()` — dual-purpose merge (fixed v2.4)
-
-Shared by two call sites with different semantics, distinguished by `opts.sourceIsAuthoritative`:
-
-- **Sheets sync** (`sourceIsAuthoritative: true`) — the incoming set is a complete, authoritative snapshot of the Sheet. Existing swimmers tagged `source:'sheet'` absent from it are assumed genuinely removed upstream, and `mergeMode` (keep/hide/remove) applies to them.
-- **Manual upload merge** (`sourceIsAuthoritative: false`) — the incoming set is just whatever was in that file, never a full snapshot of anything. Existing swimmers absent from it are **always** kept regardless of their `source` tag.
-
-Getting this wrong (both call sites previously shared the `true` behaviour unconditionally) caused a real bug: merging a manual upload with 62 Sheets-synced swimmers made all 62 disappear, since none of them were present in the uploaded file and all were tagged `source:'sheet'`.
+Unchanged from v2.4 — `diagnoseZeroRowSwimmer`/`buildFooterNote`. Not reused by the Overview tab, which has its own simpler exclusion-note pattern (see Section 1).
 
 ---
 
-## Security Notes (added v2.4)
+## Security Notes (unchanged from v2.4, still accurate)
 
-- **`escAttr()`** escapes for a value embedded in `onclick="fn('${value}')"` — a JS single-quoted string literal nested inside an HTML double-quoted attribute. It must escape *both* layers: backslash/single-quote for the JS layer, then `&`/`"`/`<`/`>` (HTML-entity encoded) for the attribute layer, in that order. Getting only the first layer right (the state before v2.4) left a real attribute-breakout injection via any field passed through it — `sw.id`, and the QT editor's `gender`/`course`/`event`/`age`.
-- **`escHtml()`** is for plain HTML text-content interpolation (never inside an attribute) — used for swimmer names, squad, gender, and QT editor's `gender`/`event` display cells.
-- Neither manual-upload validator (`sanitiseSwimmersData` for swimmers, none at all for QT files) constrains every field that ends up rendered — the escaping functions are the actual security boundary, not input validation. See `known-bugs-and-fixes.md` Open Issue #7.
-- Sync token is sent as a URL query parameter, not a header — see `known-bugs-and-fixes.md` Open Issue #1.
+- **`escAttr()`** double-layer escapes for `onclick="fn('${value}')"` — JS-string layer then HTML-attribute layer, in that order. Used throughout the new Overview code wherever a dynamic value (swimmer name, chart key) is embedded in an `onclick` attribute.
+- **`escHtml()`** for plain HTML text-content interpolation. Used throughout the new Overview code for swimmer names, events, competitions, etc.
+- Neither manual-upload validator constrains every field that ends up rendered — the escaping functions are the actual security boundary. Re-verified for the Overview tab specifically this session with a jsdom XSS probe (malicious swimmer name + competition string) — confirmed no script execution, confirmed the payload renders as escaped text.
 
 ---
 
 ## localStorage Key Map
+
+Unchanged from v2.4 — the Overview tab introduces **no new localStorage keys**. Its only state (chart-toggle exclusions, card expand/collapse, show-all/fewer, day cutoff, margin %) is session-only, held in module-level JS variables/`Set`s and DOM input values, not persisted.
 
 | Key | Format | Written by | Notes |
 |---|---|---|---|
@@ -213,13 +208,17 @@ Getting this wrong (both call sites previously shared the `true` behaviour uncon
 | `coach_COUNTY_QT` / `coach_REGIONAL_QT` | Plain array | *(legacy read-only fallback)* | Never written in v2+ |
 | `coach_theme` | `'light'`/`'dark'` | toggleTheme | |
 | `coach_SYNC_URL` / `coach_SYNC_TOKEN` | string | saveSettings, startSync | Shared by all coaches — not per-coach auth |
-| `coach_SHEETS_LAST_SYNC` | ISO timestamp | startSync | Cleared by clearData('swimmers'/'all'); displayed via `fmtDateTime()` (v2.4), re-read fresh on every Sync modal open (v2.4) |
-| `coach_COUNTY_QT_LAST_SYNC` / `coach_REGIONAL_QT_LAST_SYNC` | ISO timestamp | syncQTFromGitHub | Cleared by clearData('county'/'regional'/'all') |
-
-`checkLocalStorageSize()` sums the three main data keys and logs a console warning above 4 MB.
+| `coach_SHEETS_LAST_SYNC` | ISO timestamp | startSync | |
+| `coach_COUNTY_QT_LAST_SYNC` / `coach_REGIONAL_QT_LAST_SYNC` | ISO timestamp | syncQTFromGitHub | |
 
 ---
 
 ## FAB Speed Dial
 
-Bottom-right fixed button (＋), expands into 4 children: 👤 Add Swimmer · 📤 Manage Data · ⚙️ Settings · 🌙/☀️ Theme. Backdrop click and ESC both close the dial; ESC also cancels any open modal or meta-edit form.
+Unchanged from v2.4 — 👤 Add Swimmer · 📤 Manage Data · ⚙️ Settings · 🌙/☀️ Theme.
+
+---
+
+## Testing
+
+`test_overview.js` (not part of the shipped dashboard — a dev-time harness) runs the real extracted `<script>` block under jsdom, seeded with the actual project sample data files (`swimmers_pb.json`, `county_qt.json`, `regional_qt.json`). ~40+ checks covering: default tab state, tab-switch round-trips, card grouping, expand/collapse, show-all/fewer, chart-toggle math (arc angles, percentage recomputation), tie-break sort logic (with two real bugs in the test itself caught and fixed along the way — see `known-bugs-and-fixes.md`), the mobile digit-truncation fix, and an XSS probe. Run with `node test_overview.js` after extracting the `<script>` block; `node --check` on the extracted block is run after every edit, per the project's established convention since v1.0.
