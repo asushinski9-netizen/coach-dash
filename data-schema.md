@@ -1,6 +1,6 @@
-# Coach Dashboard — Data Schemas (v2.4)
+# Coach Dashboard — Data Schemas (v2.5)
 
-No JSON schema changes this session — all shapes below are unchanged from v2.3. Updated only to note where rendering-side escaping (not input validation) is the actual security boundary for certain fields; see the "Field validation vs. rendering safety" note at the end of §1 and §2.
+**No schema changes in v2.5.** The entire session was scoped to the new Overview tab, which reads the existing `SWIMMERS`/`COUNTY_QT`/`REGIONAL_QT` in-memory structures only — no new fields, no new files, no new localStorage keys. All shapes below are unchanged from v2.4.
 
 ---
 
@@ -35,100 +35,57 @@ No JSON schema changes this session — all shapes below are unchanged from v2.3
 |---|---|---|---|
 | `id` | string | yes | `"sw_"` prefix + timestamp for manual; `"sh_"` prefix + sanitised name for Sheet-sourced |
 | `name` | string | yes | Full display name — `Firstname Lastname` format |
-| `dob` | string | yes | ISO 8601 `YYYY-MM-DD` — used only for age bracket calculation |
+| `dob` | string | yes | ISO 8601 `YYYY-MM-DD` — used for age bracket calculation (County/Regional tabs) AND for plain calendar age (Overview tab's Squad Composition, v2.5 — see `architecture.md`) |
 | `gender` | string | yes | `"Boys"` or `"Girls"` — must match QT data exactly |
 | `squad` | string | no | See squad values below; omit if unassigned |
 | `source` | string | no | `"sheet"` or `"local"` — set by Sheets sync; omitted for pre-v2.2 manual entries |
-| `hidden` | boolean | no | `true` = excluded from all renders; set by sync merge mode "hide" |
+| `hidden` | boolean | no | `true` = excluded from all renders by default; can be included in the Overview tab's Bubble List via its "Include hidden / Former Swimmers" toggle, tagged with why |
 | `pbs` | array | yes | Array of PB entry objects; can be empty `[]` |
 
 ### Squad values
 
-| Value | Badge colour |
-|---|---|
-| `"Development"` | Teal |
-| `"Junior"` | Blue |
-| `"Senior"` | Purple |
-| `"Active"` | Green |
-| `"Masters"` | Amber |
-| `"Former Swimmer"` | Grey — hidden by default; see the Former Swimmer gate in `architecture.md`. As of v2.4, a Former Swimmer hidden this way is surfaced (with reason) in the tab's "not shown" footer note rather than silently vanishing. |
-| *(omitted)* | No badge shown |
+| Value | Badge colour | Overview tab chart color (v2.5) |
+|---|---|---|
+| `"Development"` | Teal | `#0891b2` |
+| `"Junior"` | Blue | `#4f86d8` |
+| `"Senior"` | Purple | `#7c3aed` |
+| `"Active"` | Green | `#059669` |
+| `"Masters"` | Amber | `#d97706` |
+| `"Former Swimmer"` | Grey — hidden by default | Excluded from Overview by default; includable via Bubble List's toggle |
+| *(omitted)* | No badge shown | Grouped as "No Squad" in the Overview's By Squad chart |
 
 ### PB entry object
 
 | Field | Type | Required | Values / Notes |
 |---|---|---|---|
-| `event` | string | yes | Must match an entry in `ALL_EVENTS` |
+| `event` | string | yes | Must match an entry in `ALL_EVENTS`. Split into `{distance, stroke}` by the Overview tab's `splitEventDistance()` (v2.5) for its compact entry rows and mobile stroke abbreviations |
 | `course` | string | yes | `"S"` = Short Course 25m · `"L"` = Long Course 50m |
-| `time` | string | yes | `"mm:ss.hh"` or `"ss.hh"` — e.g. `"1:22.80"` or `"34.50"` |
-| `date` | string | no | ISO 8601 `YYYY-MM-DD` |
+| `time` | string | yes | `"mm:ss.hh"` or `"ss.hh"` |
+| `date` | string | no | ISO 8601 `YYYY-MM-DD`. **v2.5:** PBs with no `date` are excluded from the Overview tab's Hot Right Now feed (undated entries can't be placed in a chronological list) |
 | `competition` | string | no | Name of meet where PB was set |
-
-If a swimmer has multiple entries for the same `event + course`, `buildSwimmerRows` uses the fastest (minimum seconds). Only one row per event+course shown.
 
 ### Manual upload validation (`sanitiseSwimmersData`)
 
-On manual file upload, each swimmer record is validated before being accepted:
-- `name` must be a non-empty string
-- `dob` must match `YYYY-MM-DD` and parse to a valid date
-- `gender` must be exactly `"Boys"` or `"Girls"`
-- Any PB entry whose `time` doesn't match `^(\d{1,2}:)?\d{1,2}\.\d{2}$` is dropped silently
-- Records failing the above are skipped (not the whole file); a console warning reports the skip count
-
-**Field validation vs. rendering safety (added v2.4):** `sanitiseSwimmersData` does **not** validate or regenerate `id`. This isn't currently a security hole — as of v2.4, every place `id` is rendered (`onclick` attributes via `escAttr()`) is safe against arbitrary content — but it does mean an uploaded file can carry through an `id` value that doesn't match the `"sw_"`/`"sh_"` convention. Not enforced, no known downstream impact beyond cosmetic.
-
-**Sheets sync bypasses this validator entirely** — `startSync()` passes the Apps Script payload straight into `mergeSwimmers()` with no equivalent check on `dob`/`gender`/`time`. A malformed value from the Sheet (e.g. a DOB in the wrong cell format) produces a swimmer whose card silently doesn't render — surfaced since v2.4 as a `no-match` entry in the tab's "not shown" diagnostic, distinguishable from a genuine "no PB" swimmer.
+Unchanged from v2.4 — validates `name`, `dob`, `gender`, and PB `time` format; drops invalid PB entries silently with a console warning; does not validate/regenerate `id`; Sheets sync bypasses this validator entirely (see `known-bugs-and-fixes.md` Open Issue #7).
 
 ---
 
 ## 2. QT Data Files (`county_qt.json` / `regional_qt.json`)
 
-### Format (v1.0+) — recommended
-
-```json
-{
-  "meta": {
-    "title":    "Hertfordshire County Championships 2026",
-    "dateFrom": "2026-02-15",
-    "dateTo":   "2026-02-17"
-  },
-  "times": [
-    {
-      "gender":   "Boys",
-      "course":   "Short Course",
-      "event":    "50 Back",
-      "age":      "12",
-      "qualify":  38.10,
-      "consider": 40.80
-    }
-  ]
-}
-```
-
-**`meta.dateFrom` / `meta.dateTo` drive Age Group calculation dashboard-wide** (see `architecture.md` → Age bracket calculation). As of v2.4, they also drive the exact wording of the championship-date banner via `describeChampDates()` — a range, a single day, or an open-ended "began on"/"concluded on" phrasing depending on which of the two fields are actually set. There is no hardcoded fallback constant.
-
-### Legacy format (still accepted)
-
-```json
-[ { "gender": "Boys", "course": "Short Course", "event": "50 Back", "age": "12", "qualify": 38.10, "consider": 40.80 } ]
-```
-
-`parseQTFull()` auto-detects. Legacy load sets empty meta — Age Groups and the championship-date banner won't resolve until dates are added manually via the QT Editor's ✏️ Edit Details form.
+Unchanged from v2.4 — `{meta: {title, dateFrom, dateTo}, times: [...]}`, legacy plain-array format still accepted via `parseQTFull()`. See `architecture.md` for how `meta.dateFrom`/`dateTo` drive age brackets and the championship-date banner (County/Regional tabs only — the Overview tab's Squad Composition deliberately does not depend on QT metadata being present).
 
 ### `times` entry fields
 
 | Field | Type | Values / Notes |
 |---|---|---|
 | `gender` | string | `"Boys"` or `"Girls"` |
-| `course` | string | `"Short Course"` or `"Long Course"` (full words — unlike swimmer `"S"`/`"L"`) |
+| `course` | string | `"Short Course"` or `"Long Course"` |
 | `event` | string | Must match `ALL_EVENTS` |
 | `age` | string | County: `"10+11"` `"12"`–`"16"` `"17+"` · Regional: `"11/12"` `"13"`–`"17"` `"18+"` |
-| `qualify` | number\|null | Qualifying time in **seconds** (float). `null` = not offered |
-| `consider` | number\|null | Consideration time in **seconds** (float). `null` = not offered |
+| `qualify` | number\|null | Qualifying time in seconds. `null` = not offered |
+| `consider` | number\|null | Consideration time in seconds. `null` = not offered |
 
-`qualify` should be ≤ `consider` (faster). Both null = not offered for this age. Code normalises inverted values defensively but source data should still be correct.
-
-**No manual-upload validation exists for this file type** (added v2.4 note — `applyQTUpload()` performs no checks on `gender`/`course`/`event`/`age`/`qualify`/`consider` at all before accepting an uploaded QT file). This is not currently a security hole — `renderQTEditor()`'s `gender`/`event` display cells are correctly escaped via `escHtml()` as of v2.4 — but a QT file with an `event` string outside `ALL_EVENTS`, or non-numeric `qualify`/`consider`, will silently produce entries that never match any swimmer lookup rather than being rejected with a clear error at upload time.
+No manual-upload validation exists for this file type (Open Issue #7).
 
 ### GitHub sync source
 
@@ -136,7 +93,6 @@ On manual file upload, each swimmer record is validated before being accepted:
 https://raw.githubusercontent.com/asushinski9-netizen/coach-dash/main/county_qt.json
 https://raw.githubusercontent.com/asushinski9-netizen/coach-dash/main/regional_qt.json
 ```
-Pulled via the 🔄 Sync from GitHub button on each QT card in 📤 Manage Data. Manual trigger only — no auto-fetch on page load.
 
 ---
 
@@ -149,6 +105,8 @@ Pulled via the 🔄 Sync from GitHub button on each QT card in 📤 Manage Data.
 50 Fly    100 Fly    200 Fly
 100 IM    200 IM     400 IM
 ```
+
+**v2.5 addition (display-only, not a schema change):** `splitEventDistance(event)` splits any of the above into `{distance, stroke}` (e.g. `"50 Free"` → `{distance: "50", stroke: "Free"}`), and `STROKE_ABBR`/`STROKE_COLOR` map the stroke to a mobile abbreviation (`FR`/`BK`/`BR`/`FLY`/`IM`) and an accent color respectively. These are presentation-layer constants in `index.html`, not part of any stored data shape.
 
 ---
 
@@ -220,11 +178,13 @@ Formula: `index = 6 + (distance/50 × 2) − 1`
 }
 ```
 
-Dashboard unwraps `payload.swimmers` — handles both plain array and wrapped format. Fetched by `startSync()` as `GET ${syncUrl}?token=${token}` — **the token is sent as a URL query parameter, not a header**; see `known-bugs-and-fixes.md` Open Issue #1 for why this hasn't been changed yet.
+Fetched by `startSync()` as `GET ${syncUrl}?token=${token}` — token is a URL query parameter, not a header (Open Issue #1, still unresolved as of v2.5).
 
 ---
 
 ## 6. localStorage Key Map
+
+**No new keys in v2.5.** The Overview tab's own state (chart-toggle exclusions, per-card expand/collapse, show-all/fewer, day cutoff, margin %) is session-only — held in JS variables and DOM input values, never written to `localStorage`. See `known-bugs-and-fixes.md` Open Issue #8.
 
 | Key | Format | Written by | Notes |
 |---|---|---|---|
@@ -234,8 +194,8 @@ Dashboard unwraps `payload.swimmers` — handles both plain array and wrapped fo
 | `coach_COUNTY_QT` / `coach_REGIONAL_QT` | Plain array | *(legacy read-only fallback)* | Never written in v2+ |
 | `coach_theme` | `'light'`/`'dark'` | toggleTheme | |
 | `coach_SYNC_URL` / `coach_SYNC_TOKEN` | string | saveSettings, startSync | Shared by all coaches |
-| `coach_SHEETS_LAST_SYNC` | ISO timestamp | startSync | Cleared by clearData('swimmers'/'all'); displayed via `fmtDateTime()` (DD/MM/YYYY, 24hr — added v2.4, was previously browser-locale-dependent) |
-| `coach_COUNTY_QT_LAST_SYNC` / `coach_REGIONAL_QT_LAST_SYNC` | ISO timestamp | syncQTFromGitHub | Cleared by clearData('county'/'regional'/'all') |
+| `coach_SHEETS_LAST_SYNC` | ISO timestamp | startSync | |
+| `coach_COUNTY_QT_LAST_SYNC` / `coach_REGIONAL_QT_LAST_SYNC` | ISO timestamp | syncQTFromGitHub | |
 
 ---
 
@@ -248,8 +208,6 @@ Dashboard unwraps `payload.swimmers` — handles both plain array and wrapped fo
 | Sheet (`course` field) | `"SC"` | `"LC"` |
 | UI badge | `SC` | `LC` |
 
-`lookupQT` converts `"S"` → `"Short Course"` and `"L"` → `"Long Course"` before matching.
-
 ---
 
 ## 8. Time Format Convention
@@ -257,10 +215,11 @@ Dashboard unwraps `payload.swimmers` — handles both plain array and wrapped fo
 | Context | Format |
 |---|---|
 | Swimmer PBs (JSON) | `"mm:ss.hh"` or `"ss.hh"` string |
-| QT times (JSON) | Float seconds — e.g. `38.10` |
-| QT editor inputs | `"mm:ss.hh"` or `"ss.hh"` (converted via `secToTime`/`timeToSec`) |
-| Sync/last-updated timestamps (UI) | `"DD/MM/YYYY, HH:MM"` 24hr, via `fmtDateTime()` — added v2.4 |
-| Sheet Results tab cumulative | `"mm:ss.hh"` string — parsed by `parseTimeStr()` in Apps Script |
+| QT times (JSON) | Float seconds |
+| QT editor inputs | `"mm:ss.hh"` or `"ss.hh"` |
+| Sync/last-updated timestamps (UI) | `"DD/MM/YYYY, HH:MM"` 24hr, via `fmtDateTime()` |
+| Overview tab dates (v2.5) | `"D MMM"` (no year) via `fmtDateShort()` — used only where space is tight (Hot Right Now's compact entry rows); every other date display in the app still uses the full `fmtDate()` |
+| Sheet Results tab cumulative | `"mm:ss.hh"` string |
 | Sheet Results tab splits | Float seconds |
 
-Conversion functions: `timeToSec("1:22.80")` → `82.80` · `secToTime(82.80)` → `"1:22.80"` · `fmtDateTime(isoString)` → `"01/07/2026, 12:43"`
+Conversion functions: `timeToSec("1:22.80")` → `82.80` · `secToTime(82.80)` → `"1:22.80"` · `fmtDate(iso)` → `"15 Nov 2025"` · `fmtDateShort(iso)` → `"15 Nov"` (v2.5) · `fmtDateTime(iso)` → `"01/07/2026, 12:43"`

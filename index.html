@@ -386,6 +386,123 @@ table.swimmer-tbl tr:hover td { background: var(--surface2); }
 /* ── NOTE ────────────────────────────────────────────────── */
 .note { font-size: 0.72rem; color: var(--text3); margin-top: 10px; }
 
+/* ── OVERVIEW TAB ("coach's morning briefing") ───────────── */
+.overview-section { margin-bottom: 28px; }
+.overview-section:last-child { margin-bottom: 0; }
+
+/* Generic numeric-input controls row — used by both Hot Right Now (day cutoff) and
+   The Bubble List (margin %, include-hidden toggle) */
+.ov-controls-row { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; margin-bottom: 14px; }
+.margin-input-group { display: flex; align-items: center; gap: 6px; font-size: 0.8rem; color: var(--text2); white-space: nowrap; }
+.margin-input-group input {
+  width: 64px; background: var(--surface2); border: 1px solid var(--border);
+  color: var(--text); padding: 6px 8px; border-radius: 8px;
+  font-size: 0.83rem; font-family: inherit; text-align: right; outline: none;
+  transition: border-color 0.15s;
+}
+.margin-input-group input:focus { border-color: var(--accent); }
+
+/* Per-swimmer card grid — shared by Hot Right Now + The Bubble List.
+   5-up on desktop, 2-up on mobile (see media query below). Each card groups every
+   entry for one swimmer, since at this age a single gala usually produces more than
+   one PB / bubble opportunity for the same swimmer. */
+.ov-card-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; }
+.ov-person-card {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+  padding: 12px; display: flex; flex-direction: column; gap: 8px; min-width: 0;
+  transition: background 0.15s, border-color 0.15s;
+}
+/* A little darker while expanded, so it's visually obvious which card(s) a coach has opened */
+.ov-person-card.expanded { background: rgba(26,86,196,0.06); border-color: var(--accent); }
+body.dark .ov-person-card.expanded { background: rgba(59,130,246,0.1); }
+.ov-person-header { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.ov-person-name {
+  font-weight: 600; color: var(--text); font-size: 0.8rem;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
+}
+.ov-person-entries { display: flex; flex-direction: column; }
+.ov-person-entry { border-top: 1px solid var(--border); padding-top: 6px; margin-top: 6px; }
+.ov-person-entry:first-child { border-top: none; padding-top: 0; margin-top: 0; }
+/* Single-row, two-column entry variant (shared by Hot Right Now and The Bubble List) — context (event + course) on the
+   left, a tightly-grouped result block on the right where the time leads and its date sits
+   directly underneath as a caption. Earlier version stretched time and date apart with
+   space-between on their own baseline, which read as scattered/disconnected rather than
+   "the date this time was set" — grouping them as one small stacked block fixes that while
+   still giving the time real visual weight. */
+.ov-entry-stat {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  border-left: 3px solid var(--border); padding-left: 8px; border-radius: 2px;
+}
+.ov-entry-stat-meta { font-size: 0.72rem; color: var(--text3); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }
+.ov-entry-stat-meta .badge { font-size: 0.64rem; padding: 1px 7px; }
+/* Bubble List's meta is two rows: championship type (County/Regional), then event + course
+   underneath — Hot Right Now keeps the single-line form above. */
+.ov-entry-stat-meta.ov-bubble-meta { flex-direction: column; align-items: flex-start; gap: 2px; }
+.ov-bubble-meta-tab { font-size: 0.64rem; color: var(--text3); text-transform: uppercase; letter-spacing: 0.03em; }
+.ov-bubble-meta-event { display: flex; align-items: center; gap: 6px; color: var(--text2); }
+.ov-entry-stat-result { display: flex; flex-direction: column; align-items: flex-end; flex-shrink: 0; line-height: 1.25; }
+.ov-entry-stat-time { font-size: 1.05rem; font-weight: 700; color: var(--gold); font-variant-numeric: tabular-nums; }
+.ov-entry-stat-date { font-size: 0.66rem; color: var(--text3); }
+.ov-expand-toggle {
+  display: block; width: 100%; background: none; border: none; cursor: pointer;
+  font-size: 0.66rem; font-weight: 700; font-family: inherit; color: var(--accent);
+  padding: 5px 0 0; text-align: center;
+}
+.ov-expand-toggle:hover { text-decoration: underline; }
+/* Inline variant of the same link-style toggle, used within a text note (e.g. "Showing 10
+   of 15 swimmers... Show all") rather than as its own block-level row. */
+.ov-inline-link-btn {
+  display: inline; background: none; border: none; cursor: pointer;
+  font-size: inherit; font-weight: 700; font-family: inherit; color: var(--accent);
+  padding: 0; margin-left: 4px;
+}
+.ov-inline-link-btn:hover { text-decoration: underline; }
+.ov-hidden-tag {
+  font-size: 0.58rem; color: var(--gold); background: rgba(217,119,6,0.1);
+  border-radius: 20px; padding: 1px 7px; margin-left: 4px; font-weight: 700;
+  letter-spacing: 0.02em; vertical-align: middle;
+}
+
+/* Squad composition — no charting library, hand-rolled SVG/CSS.
+   Three matching pie/donut cards (gender/squad/age), 1 row on desktop, stacked on mobile
+   (see media query). Each card's legend sits to the right of its chart and is clickable —
+   toggling a key removes/adds that category and the remaining slices recompute to fill 100%. */
+.ov-comp-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+.ov-comp-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px; }
+.ov-comp-card-title {
+  font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--text3); font-weight: 700; margin-bottom: 12px;
+}
+.ov-comp-card-body { display: flex; align-items: center; gap: 16px; }
+.ov-donut { width: 132px; height: 132px; flex-shrink: 0; }
+.ov-donut-total { font-size: 22px; font-weight: 700; fill: var(--text); }
+.ov-donut-sub { font-size: 10px; fill: var(--text3); }
+
+/* Legend sits close to the chart rather than stretching across the card — flex: 0 0 auto
+   (not flex: 1) is what keeps the label and count from ending up with a big gap between them. */
+.ov-legend-col { display: flex; flex-direction: column; gap: 3px; flex: 0 0 auto; min-width: 140px; max-height: 150px; overflow-y: auto; }
+/* Used when a chart has enough categories (e.g. Age) that a single column would need to
+   scroll — two columns fit the same items in half the height with no scrollbar. flex: 1
+   (rather than a fixed width) lets it use whatever room the card actually has, since a
+   fixed width was truncating labels on wider cards that had space to spare. */
+.ov-legend-col.multi-col { display: block; columns: 2; column-gap: 16px; flex: 1; width: auto; min-width: 200px; max-height: none; overflow: visible; }
+.ov-legend-col.multi-col .ov-legend-item { break-inside: avoid; }
+.ov-legend-item {
+  display: flex; align-items: center; gap: 6px; font-size: 0.72rem; color: var(--text2);
+  cursor: pointer; padding: 3px 5px; border-radius: 6px;
+  transition: background 0.12s, opacity 0.12s; user-select: none;
+}
+.ov-legend-item:hover { background: var(--surface2); }
+.ov-legend-item.excluded { opacity: 0.4; text-decoration: line-through; }
+.ov-legend-item i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0; }
+/* min-width in ch (not 0) is the actual fix for the digit-truncation bug: with min-width:0,
+   a long adjacent count string (e.g. "15 (18%)" vs "7 (8%)") could squeeze this label down
+   to sub-one-character width on that specific row — which is exactly why some 2-digit ages
+   truncated to a single digit while others didn't, regardless of how much room the
+   container itself had. 2.4ch guarantees at least 2 digits' worth of room, always. */
+.ov-legend-label { flex: 1; min-width: 2.4ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ov-legend-count { flex-shrink: 0; font-variant-numeric: tabular-nums; font-weight: 600; color: var(--text); margin-left: 8px; }
+
 /* ── FAB SPEED DIAL ──────────────────────────────────────── */
 .fab-backdrop { display: none; position: fixed; inset: 0; z-index: 198; background: rgba(0,0,0,0.3); }
 .fab-backdrop.open { display: block; }
@@ -424,8 +541,11 @@ table.swimmer-tbl tr:hover td { background: var(--surface2); }
   .header { padding: 12px 16px; gap: 10px; }
   .header-logo { height: 40px; width: 40px; }
   .header-title h1 { font-size: 1rem; }
+  /* Tagline drops to its own row under the club name instead of wrapping mid-phrase */
+  .header-sep { display: none; }
+  .header-tagline { display: block; }
 
-  /* Tabs: 2×1 grid (2 tabs, each 50%) */
+  /* Tabs: Overview takes the full first row; County/Regional pair up on row 2 */
   .tabs {
     margin: 12px 12px 0;
     flex-wrap: wrap;
@@ -434,6 +554,7 @@ table.swimmer-tbl tr:hover td { background: var(--surface2); }
     border-radius: 10px;
   }
   .tab-btn { flex: 1 1 45%; font-size: 0.76rem; padding: 9px 6px; }
+  .tabs .tab-btn:first-child { flex: 1 1 100%; }
 
   /* Container */
   .container { padding: 14px 12px 80px; }
@@ -489,6 +610,22 @@ table.swimmer-tbl tr:hover td { background: var(--surface2); }
   .desktop-tab { display: none; }
   /* Name search spans full width in 2-col grid */
   .fg.name-fg { grid-column: 1 / span 2; }
+
+  /* Overview tab */
+  .ov-card-grid { grid-template-columns: repeat(2,1fr); gap: 8px; }
+  .ov-person-card { padding: 9px; gap: 6px; }
+  .ov-person-name { font-size: 0.74rem; }
+  .ov-entry-stat-meta { font-size: 0.66rem; }
+  .ov-entry-stat-time { font-size: 0.92rem; }
+  .ov-entry-stat-date { font-size: 0.6rem; }
+  .ov-comp-grid { grid-template-columns: 1fr; gap: 12px; }
+  .ov-comp-card-body { gap: 10px; }
+  .ov-donut { width: 96px; height: 96px; }
+  .ov-donut-total { font-size: 15px; }
+  .ov-legend-item { font-size: 0.68rem; }
+  .ov-legend-col { min-width: 0; }
+  .ov-legend-col.multi-col { flex: 1; min-width: 0; }
+  .ov-controls-row { gap: 10px 18px; }
 }
 </style>
 </head>
@@ -499,13 +636,14 @@ table.swimmer-tbl tr:hover td { background: var(--surface2); }
   <img class="header-logo" id="headerLogo" alt="Broomfield Park SC">
   <div class="header-title">
     <h1>Coach Dashboard</h1>
-    <p>Broomfield Park SC · County &amp; Regional QT Tracker</p>
+    <p>Broomfield Park SC<span class="header-sep"> · </span><span class="header-tagline">County &amp; Regional QT Tracker</span></p>
   </div>
 </div>
 
 <!-- ══ TAB BAR ═══════════════════════════════════════════════ -->
 <div class="tabs">
-  <button class="tab-btn active" onclick="showTab('county',this)">🎯 County QT</button>
+  <button class="tab-btn active" onclick="showTab('overview',this)">🌅 Overview</button>
+  <button class="tab-btn"        onclick="showTab('county',this)">🎯 County QT</button>
   <button class="tab-btn"        onclick="showTab('regional',this)">🏅 Regional QT</button>
   <button class="tab-btn desktop-tab" onclick="showTab('county-editor',this)">📝 County QT Editor</button>
   <button class="tab-btn desktop-tab" onclick="showTab('regional-editor',this)">📝 Regional QT Editor</button>
@@ -514,8 +652,53 @@ table.swimmer-tbl tr:hover td { background: var(--surface2); }
 <!-- ══ MAIN CONTAINER ════════════════════════════════════════ -->
 <div class="container">
 
+  <!-- OVERVIEW TAB — "coach's morning briefing" -->
+  <div class="panel active" id="tab-overview">
+
+    <div class="overview-section">
+      <div class="section-header">
+        <div class="section-title">👥 Squad Composition</div>
+      </div>
+      <div id="overviewComposition"></div>
+      <div class="note" id="overviewExclNote"></div>
+    </div>
+
+    <div class="overview-section">
+      <div class="section-header">
+        <div class="section-title">🔥 Hot Right Now — Recent PBs</div>
+      </div>
+      <div class="ov-controls-row">
+        <label class="margin-input-group">
+          Show PBs from the last
+          <input type="number" id="hotCutoffDays" value="30" min="1" max="365" step="1" onchange="renderHotList()">
+          day(s)
+        </label>
+      </div>
+      <div id="overviewHotList"></div>
+    </div>
+
+    <div class="overview-section">
+      <div class="section-header">
+        <div class="section-title">🎯 The Bubble List</div>
+      </div>
+      <div class="ov-controls-row">
+        <label class="margin-input-group">
+          Within
+          <input type="number" id="bubbleMargin" value="5" min="0.1" max="20" step="0.5" onchange="renderBubbleList()">
+          % of a qualifying time
+        </label>
+        <label class="nopb-toggle">
+          <input type="checkbox" id="bubbleIncludeHidden" onchange="renderBubbleList()">
+          Include hidden / Former Swimmers
+        </label>
+      </div>
+      <div id="overviewBubbleList"></div>
+    </div>
+
+  </div>
+
   <!-- COUNTY TAB -->
-  <div class="panel active" id="tab-county">
+  <div class="panel" id="tab-county">
     <div class="info-banner" id="countyBanner"></div>
     <div class="stat-row" id="countyStats"></div>
     <div class="filter-bar" id="countyFilterBar">
@@ -1126,6 +1309,21 @@ const ALL_EVENTS = [
   '100 IM','200 IM','400 IM'
 ];
 
+// Splits an ALL_EVENTS string ("50 Free", "1500 Free", "200 IM") into its distance and
+// stroke parts, and maps the stroke to a short mobile abbreviation. Used by Hot Right Now's
+// single-row entries, which show the full stroke name on desktop and the abbreviation on
+// mobile via the existing .col-full/.col-abbr pattern.
+const STROKE_ABBR = { Free: 'FR', Back: 'BK', Breast: 'BR', Fly: 'FLY', IM: 'IM' };
+// Left accent bar color per stroke, reusing hex values already used elsewhere in the app
+// (squad badge colors) rather than inventing a new palette. Ties the entry's two columns
+// (context left, result right) together with one visual thread.
+const STROKE_COLOR = { Free: '#1a56c4', Back: '#7c3aed', Breast: '#0891b2', Fly: '#db2777', IM: '#059669' };
+function splitEventDistance(event) {
+  const spaceIdx = event.indexOf(' ');
+  if (spaceIdx === -1) return { distance: event, stroke: '' };
+  return { distance: event.slice(0, spaceIdx), stroke: event.slice(spaceIdx + 1) };
+}
+
 const AVATAR_COLORS = [
   {bg:'rgba(26,86,196,0.13)',  color:'#1a56c4'},
   {bg:'rgba(14,165,212,0.13)', color:'#0891b2'},
@@ -1231,6 +1429,16 @@ function fmtDate(d) {
   const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   const dt = parseLocalDate(d);
   return `${dt.getDate()} ${months[dt.getMonth()]} ${dt.getFullYear()}`;
+}
+// Compact day+month variant (no year) — used only where horizontal space is genuinely tight
+// (Hot Right Now's single-row entries). Dropping the year is a reasonable trade there since
+// everything shown is within the configurable day-cutoff window (default 30 days), so the
+// year is essentially never ambiguous.
+function fmtDateShort(d) {
+  if (!d) return '—';
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const dt = parseLocalDate(d);
+  return `${dt.getDate()} ${months[dt.getMonth()]}`;
 }
 // Formats an ISO timestamp as DD/MM/YYYY, HH:MM (24hr) — used for sync "Last synced" displays.
 // Deliberately NOT toLocaleString(), which defaults to the browser locale (e.g. US M/D/YYYY
@@ -1740,6 +1948,423 @@ function renderTab(prefix) {
 function renderCounty()   { renderTab('county'); }
 function renderRegional() { renderTab('regional'); }
 
+// ============================================================
+// OVERVIEW TAB — "coach's morning briefing"
+// Squad-wide, unfiltered snapshot spanning both County and Regional QT data at once.
+// Deliberately has no Squad/Gender filter bar of its own (v2.5 decision) — it's meant to
+// be a single glance at the whole squad, not another filterable list like County/Regional.
+// ============================================================
+
+// Default exclusion gates shared by every Overview section EXCEPT the bubble list, which
+// has its own explicit "Include hidden / Former Swimmers" toggle (see renderBubbleList).
+function getOverviewEligibleSwimmers() {
+  return SWIMMERS.filter(sw => !sw.hidden && sw.squad !== 'Former Swimmer');
+}
+
+// Short label + full tooltip detail for a swimmer excluded by a default gate — reused by
+// the bubble list when "Include hidden / Former Swimmers" is switched on, so an included
+// swimmer is still clearly flagged rather than silently blending in with the regular squad.
+function hiddenReasonDetail(sw) {
+  if (sw.hidden) return { label: 'Hidden', detail: 'Removed from the Sheet but kept locally under "Hide" merge mode' };
+  if (sw.squad === 'Former Swimmer') return { label: 'Former', detail: 'Former Swimmer — hidden by default' };
+  return null;
+}
+
+// Per-section expand state (session-only, same lifetime as e.g. collapseAllState) — a
+// swimmer's card starts collapsed to just their single most relevant entry; the "+N more"
+// link expands it to show every entry for that swimmer. Hot Right Now and The Bubble List
+// track this independently since a swimmer could be expanded in one and not the other.
+const hotExpanded = new Set();
+const bubbleExpanded = new Set();
+
+function toggleHotExpand(name) {
+  if (hotExpanded.has(name)) hotExpanded.delete(name); else hotExpanded.add(name);
+  renderHotList();
+}
+function toggleBubbleExpand(name) {
+  if (bubbleExpanded.has(name)) bubbleExpanded.delete(name); else bubbleExpanded.add(name);
+  renderBubbleList();
+}
+
+// Separate "show every swimmer, not just the top N cards" toggle for each section — distinct
+// from the per-card expand state above, which controls entries WITHIN a card rather than how
+// many swimmer cards are shown at all.
+let hotShowAll = false;
+let bubbleShowAll = false;
+function toggleHotShowAll() { hotShowAll = !hotShowAll; renderHotList(); }
+function toggleBubbleShowAll() { bubbleShowAll = !bubbleShowAll; renderBubbleList(); }
+
+// Shared per-swimmer card used by both Hot Right Now and The Bubble List. `entries` must
+// already be ordered most-relevant-first (most recent date, or closest gap). Only the first
+// entry shows by default, even if others tie with it (e.g. two PBs on the same day) — a
+// "+N more" link expands the card to reveal the rest, tracked per swimmer in `expandedSet`.
+function renderPersonCard(name, idx, entries, renderEntry, hideReason, expandedSet, toggleFnName) {
+  const pal = AVATAR_COLORS[idx % AVATAR_COLORS.length];
+  const isExpanded = expandedSet.has(name);
+  const shown = isExpanded ? entries : entries.slice(0, 1);
+  const entriesHtml = shown.map(renderEntry).join('');
+  const toggleHtml = entries.length > 1
+    ? `<button type="button" class="ov-expand-toggle" onclick="${toggleFnName}('${escAttr(name)}')">${isExpanded ? '▴ Show less' : `▾ +${entries.length - 1} more`}</button>`
+    : '';
+  return `<div class="ov-person-card${isExpanded ? ' expanded' : ''}">
+    <div class="ov-person-header">
+      <div class="swimmer-avatar" style="background:${pal.bg};color:${pal.color};width:28px;height:28px;font-size:0.62rem;flex-shrink:0">${initials(name)}</div>
+      <div class="ov-person-name" title="${escHtml(name)}">${escHtml(name)}${hideReason ? `<span class="ov-hidden-tag" title="${escHtml(hideReason.detail)}">${escHtml(hideReason.label)}</span>` : ''}</div>
+    </div>
+    <div class="ov-person-entries">${entriesHtml}</div>
+    ${toggleHtml}
+  </div>`;
+}
+
+// ── Section 1: Hot Right Now — recent PBs, grouped by swimmer ────
+// PBs with no recorded `date` (an optional field) are excluded rather than shown undated —
+// the whole point of this feed is chronological ordering, so an undated entry can't be
+// placed in it meaningfully.
+function collectRecentPbs(limit, cutoffDate) {
+  const eligible = getOverviewEligibleSwimmers();
+  const entries = [];
+  eligible.forEach(sw => {
+    (sw.pbs || []).forEach(pb => {
+      if (!pb.date) return;
+      if (cutoffDate && pb.date < cutoffDate) return; // ISO YYYY-MM-DD compares correctly as a string
+      entries.push({ name: sw.name, event: pb.event, course: pb.course, time: pb.time, date: pb.date, competition: pb.competition || '' });
+    });
+  });
+  entries.sort((a, b) => b.date.localeCompare(a.date)); // ISO YYYY-MM-DD sorts correctly as a string
+  return entries.slice(0, limit);
+}
+
+// Reads and validates the "last N days" input, defaulting to 30 (a month) if missing/invalid —
+// same pattern as the bubble list's margin input.
+function getHotCutoffDays() {
+  const input = document.getElementById('hotCutoffDays');
+  let days = input ? parseInt(input.value, 10) : 30;
+  if (!isFinite(days) || days < 1) days = 30;
+  return days;
+}
+
+// Today minus N days, as an ISO YYYY-MM-DD string so it can be compared directly against
+// `pb.date` strings without any Date-object parsing on the hot path.
+function getHotCutoffDate(days) {
+  const d = new Date();
+  d.setDate(d.getDate() - days);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+// Groups a generous raw pool of recent dated PBs (within the configured day cutoff) by
+// swimmer. Ordering: most recent PB date first, then — since it's the norm rather than the
+// exception for several swimmers to share the same most-recent date right after a club gala —
+// swimmers with MORE recent PBs in the pool rank above one with only a single PB on that
+// date. This was previously a plain date-only sort, which meant swimmer name (via
+// stable-sort insertion order) was the effective tiebreaker on tied dates — i.e. it looked
+// alphabetical, because on a shared gala date it basically was. Name is now only the final,
+// rarely-reached tiebreak.
+function groupRecentPbsBySwimmer() {
+  const cutoffDate = getHotCutoffDate(getHotCutoffDays());
+  const flat = collectRecentPbs(200, cutoffDate);
+  const bySwimmer = new Map();
+  flat.forEach(e => {
+    if (!bySwimmer.has(e.name)) bySwimmer.set(e.name, { name: e.name, entries: [] });
+    bySwimmer.get(e.name).entries.push(e); // already date-desc from collectRecentPbs
+  });
+  const groups = [...bySwimmer.values()];
+  groups.sort((a, b) =>
+    b.entries[0].date.localeCompare(a.entries[0].date) ||
+    b.entries.length - a.entries.length ||
+    a.name.localeCompare(b.name)
+  );
+  return groups;
+}
+
+const HOT_CARD_CAP = 10; // 2 full rows of 5 on desktop
+
+function renderHotList() {
+  const el = document.getElementById('overviewHotList');
+  if (!el) return;
+  const days = getHotCutoffDays();
+  const groups = groupRecentPbsBySwimmer();
+  if (groups.length === 0) {
+    // Distinguish "nothing recorded, ever" from "nothing in this particular window" —
+    // the latter should nudge the coach to widen the window rather than imply the squad
+    // has no PB history at all.
+    const hasAnyDatedPbEver = collectRecentPbs(1).length > 0;
+    el.innerHTML = hasAnyDatedPbEver
+      ? `<div class="empty"><div class="empty-icon">🏊</div><p>No PBs recorded in the last ${days} day${days === 1 ? '' : 's'} — try widening the window.</p></div>`
+      : `<div class="empty"><div class="empty-icon">🏊</div><p>No dated PBs recorded yet.</p></div>`;
+    return;
+  }
+  const shownGroups = groups.slice(0, hotShowAll ? groups.length : HOT_CARD_CAP);
+  const renderEntry = e => {
+    const { distance, stroke } = splitEventDistance(e.event);
+    const strokeAbbr = STROKE_ABBR[stroke] || stroke;
+    const strokeColor = STROKE_COLOR[stroke] || 'var(--border)';
+    return `
+      <div class="ov-person-entry ov-entry-stat" style="border-left-color:${strokeColor}">
+        <div class="ov-entry-stat-meta">
+          <span>${escHtml(distance)} <span class="col-full">${escHtml(stroke)}</span><span class="col-abbr">${escHtml(strokeAbbr)}</span></span>
+          <span class="badge ${e.course}">${e.course === 'S' ? 'SC' : 'LC'}</span>
+        </div>
+        <div class="ov-entry-stat-result">
+          <span class="ov-entry-stat-time">${escHtml(e.time)}</span>
+          <span class="ov-entry-stat-date">${fmtDateShort(e.date)}</span>
+        </div>
+      </div>`;
+  };
+  el.innerHTML = `<div class="ov-card-grid">` + shownGroups.map((g, idx) =>
+    renderPersonCard(g.name, idx, g.entries, renderEntry, null, hotExpanded, 'toggleHotExpand')
+  ).join('') + `</div>` +
+    (groups.length > HOT_CARD_CAP ? `<div class="note">Showing ${shownGroups.length} of ${groups.length} swimmers with PBs in the last ${days} day${days === 1 ? '' : 's'}.
+      <button type="button" class="ov-inline-link-btn" onclick="toggleHotShowAll()">${hotShowAll ? '▴ Show fewer' : '▾ Show all'}</button></div>` : '');
+}
+
+// ── Section 2: The Bubble List, grouped by swimmer ───────────────
+// Swimmers with a real, recorded PB that's within a configurable % margin of a QT (County
+// or Regional) they haven't yet hit. Each card can list every event/course/tab combination
+// within margin for that swimmer (via the expand link), not just their closest gap — a
+// swimmer legitimately on the bubble in two strokes is useful information for a coach.
+function buildBubbleList(marginPercent, includeHidden) {
+  const base = includeHidden ? SWIMMERS.slice() : getOverviewEligibleSwimmers();
+  const entries = [];
+  base.forEach(sw => {
+    const hideReason = hiddenReasonDetail(sw);
+    [['County', COUNTY_QT, getCountyAgeBracket], ['Regional', REGIONAL_QT, getRegionalAgeBracket]].forEach(([tabLabel, qtData, ageFn]) => {
+      const rows = buildSwimmerRows(sw, qtData, ageFn, '', '', '', false); // real PBs only, no filters
+      rows.forEach(r => {
+        if (r.status !== 'Consideration' && r.status !== 'Outside') return;
+        if (r.qualify == null || r.gapQ == null || r.gapQ <= 0) return;
+        const pct = (r.gapQ / r.qualify) * 100;
+        if (pct > marginPercent) return;
+        entries.push({
+          name: sw.name, tabLabel, event: r.event, course: r.course,
+          time: r.pb.time, qualifyTime: secToTime(r.qualify),
+          gapSeconds: r.gapQ, pct, hideReason,
+        });
+      });
+    });
+  });
+  entries.sort((a, b) => a.pct - b.pct);
+  return entries;
+}
+
+// Groups bubble entries by swimmer. Since the flat list is already sorted ascending by pct,
+// any one swimmer's subsequence within it is also ascending — so each group's entries are
+// automatically ordered closest-gap-first with no extra sort needed, and a group's first
+// entry is always that swimmer's single closest opportunity. Cards are then ordered by that
+// closest gap ascending (smallest first); when two swimmers' closest gaps are equal, the one
+// with more near-qualifying opportunities ranks above one with only a single bubble entry.
+function groupBubbleEntriesBySwimmer(marginPercent, includeHidden) {
+  const flat = buildBubbleList(marginPercent, includeHidden);
+  const bySwimmer = new Map();
+  flat.forEach(e => {
+    if (!bySwimmer.has(e.name)) bySwimmer.set(e.name, { name: e.name, hideReason: e.hideReason, entries: [] });
+    bySwimmer.get(e.name).entries.push(e);
+  });
+  const groups = [...bySwimmer.values()];
+  groups.sort((a, b) => a.entries[0].pct - b.entries[0].pct || b.entries.length - a.entries.length);
+  return groups;
+}
+
+const BUBBLE_CARD_CAP = 10; // 2 full rows of 5 on desktop
+
+function renderBubbleList() {
+  const el = document.getElementById('overviewBubbleList');
+  const marginInput = document.getElementById('bubbleMargin');
+  const includeHiddenEl = document.getElementById('bubbleIncludeHidden');
+  if (!el || !marginInput) return;
+  let margin = parseFloat(marginInput.value);
+  if (!isFinite(margin) || margin < 0.1) margin = 0.1;
+  const includeHidden = includeHiddenEl?.checked || false;
+  const groups = groupBubbleEntriesBySwimmer(margin, includeHidden);
+  if (groups.length === 0) {
+    el.innerHTML = `<div class="empty"><div class="empty-icon">🎯</div><p>No swimmers within ${margin}% of a qualifying time right now.</p></div>`;
+    return;
+  }
+  const shownGroups = groups.slice(0, bubbleShowAll ? groups.length : BUBBLE_CARD_CAP);
+  const renderEntry = e => {
+    const { distance, stroke } = splitEventDistance(e.event);
+    const strokeAbbr = STROKE_ABBR[stroke] || stroke;
+    const strokeColor = STROKE_COLOR[stroke] || 'var(--border)';
+    return `
+      <div class="ov-person-entry ov-entry-stat" style="border-left-color:${strokeColor}">
+        <div class="ov-entry-stat-meta ov-bubble-meta">
+          <div class="ov-bubble-meta-tab">${escHtml(e.tabLabel)}</div>
+          <div class="ov-bubble-meta-event">
+            <span>${escHtml(distance)} <span class="col-full">${escHtml(stroke)}</span><span class="col-abbr">${escHtml(strokeAbbr)}</span></span>
+            <span class="badge ${e.course}">${e.course === 'S' ? 'SC' : 'LC'}</span>
+          </div>
+        </div>
+        <div class="ov-entry-stat-result">
+          <span class="ov-entry-stat-time">${e.gapSeconds.toFixed(2)}s off</span>
+          <span class="ov-entry-stat-date">QT ${e.qualifyTime}</span>
+        </div>
+      </div>`;
+  };
+  el.innerHTML = `<div class="ov-card-grid">` + shownGroups.map((g, idx) =>
+    renderPersonCard(g.name, idx, g.entries, renderEntry, g.hideReason, bubbleExpanded, 'toggleBubbleExpand')
+  ).join('') + `</div>` +
+    (groups.length > BUBBLE_CARD_CAP ? `<div class="note">Showing the closest ${shownGroups.length} of ${groups.length} swimmers within margin.
+      <button type="button" class="ov-inline-link-btn" onclick="toggleBubbleShowAll()">${bubbleShowAll ? '▴ Show fewer' : '▾ Show all'}</button></div>` : '');
+}
+
+// ── Section 3: Squad Composition ─────────────────────────────────
+// Age is bucketed by plain calendar age (today), not the County/Regional QT age bracket —
+// those only exist once QT metadata (championship dates) is loaded and differ from each
+// other, which would make this section unusable with no QT data loaded at all.
+function getCurrentAge(dob) {
+  const d = parseLocalDate(dob);
+  if (isNaN(d.getTime())) return NaN;
+  const now = new Date();
+  let age = now.getFullYear() - d.getFullYear();
+  const hadBirthdayThisYear = (now.getMonth() > d.getMonth()) || (now.getMonth() === d.getMonth() && now.getDate() >= d.getDate());
+  if (!hadBirthdayThisYear) age--;
+  return age;
+}
+
+const SQUAD_DISPLAY_ORDER = ['Development', 'Junior', 'Senior', 'Active', 'Masters'];
+
+// Matches the existing squad-badge colors used elsewhere in the dashboard, so the chart
+// reads as the same categories a coach already recognises from the swimmer cards.
+const SQUAD_COLORS = {
+  'Development': '#0891b2',
+  'Junior':      '#4f86d8',
+  'Senior':      '#7c3aed',
+  'Active':      '#059669',
+  'Masters':     '#d97706',
+};
+// Matches the existing gender-pill colors used on swimmer cards.
+const GENDER_COLORS = { Boys: '#1a56c4', Girls: '#db2777' };
+
+// Per-chart set of currently-hidden legend keys. Session-only (not persisted), same as
+// e.g. collapseAllState — a coach toggling "hide No Squad" doesn't need that to survive
+// a reload. Keyed by chart id so gender/squad/age toggle independently of each other.
+const compChartExcluded = { gender: new Set(), squad: new Set(), age: new Set() };
+
+function toggleCompChartKey(chartId, key) {
+  const set = compChartExcluded[chartId];
+  if (!set) return;
+  if (set.has(key)) set.delete(key); else set.add(key);
+  renderComposition();
+}
+
+// Renders one composition card: a title, a pie/donut on the left, a clickable legend on the
+// right. `items` = [{key, label, value, color, tooltipLabel?}], pre-filtered to value > 0.
+// `label` is what's shown in the legend (kept short so it doesn't truncate); `tooltipLabel`
+// (falls back to `label`) is used for hover text, so a shortened label like a bare age
+// number doesn't lose context — the full "Age 10" phrasing still shows on hover.
+// Clicking a legend entry removes/adds it from `compChartExcluded[chartId]`; the remaining
+// slices' percentages are recomputed against whatever's still visible, not the original
+// total — so hiding "No Squad" shows the true proportion across the squads that remain.
+function renderCompChart(chartId, title, items) {
+  const excluded = compChartExcluded[chartId];
+  const visible = items.filter(it => !excluded.has(it.key));
+  const total = visible.reduce((sum, it) => sum + it.value, 0);
+  // CX/CY/R sized with enough margin (R + half stroke well inside the viewBox) that the ring
+  // is never edge-clipped — that clipping was part of what made the ring look faceted rather
+  // than a clean circle at the previous smaller size.
+  const CX = 60, CY = 60, R = 46, STROKE = 15, CIRC = 2 * Math.PI * R;
+
+  let offset = 0;
+  const arcsHtml = visible.map(it => {
+    const len = total > 0 ? (it.value / total) * CIRC : 0;
+    const pct = total > 0 ? Math.round((it.value / total) * 100) : 0;
+    const tLabel = it.tooltipLabel || it.label;
+    const html = `<circle r="${R}" fill="none" stroke="${it.color}" stroke-width="${STROKE}" stroke-dasharray="${len} ${CIRC}" stroke-dashoffset="${-offset}"><title>${escHtml(tLabel)}: ${it.value} (${pct}%)</title></circle>`;
+    offset += len;
+    return html;
+  }).join('');
+
+  const legendHtml = items.map(it => {
+    const isExcluded = excluded.has(it.key);
+    const pct = (!isExcluded && total > 0) ? Math.round((it.value / total) * 100) : null;
+    const tLabel = it.tooltipLabel || it.label;
+    return `<div class="ov-legend-item${isExcluded ? ' excluded' : ''}"
+        onclick="toggleCompChartKey('${escAttr(chartId)}','${escAttr(it.key)}')"
+        title="Click to ${isExcluded ? 'show' : 'hide'} ${escHtml(tLabel)}">
+      <i style="background:${it.color}"></i>
+      <span class="ov-legend-label">${escHtml(it.label)}</span>
+      <span class="ov-legend-count">${it.value}${pct != null ? ` (${pct}%)` : ''}</span>
+    </div>`;
+  }).join('');
+  // More than 6 categories (typically Age) would need to scroll in one column — two columns
+  // fit the same list in about half the height with no scrollbar.
+  const legendColClass = items.length > 6 ? 'ov-legend-col multi-col' : 'ov-legend-col';
+
+  return `<div class="ov-comp-card">
+    <div class="ov-comp-card-title">${escHtml(title)}</div>
+    <div class="ov-comp-card-body">
+      <svg class="ov-donut" viewBox="0 0 120 120" role="img" aria-label="${escHtml(title)} breakdown, ${total} shown">
+        <g transform="translate(${CX},${CY}) rotate(-90)">
+          <circle r="${R}" fill="none" stroke="var(--surface3)" stroke-width="${STROKE}"></circle>
+          ${arcsHtml}
+        </g>
+        <text x="${CX}" y="${CY - 4}" text-anchor="middle" class="ov-donut-total">${total}</text>
+        <text x="${CX}" y="${CY + 11}" text-anchor="middle" class="ov-donut-sub">${total === 1 ? 'swimmer' : 'shown'}</text>
+      </svg>
+      <div class="${legendColClass}">${legendHtml}</div>
+    </div>
+    ${total === 0 ? `<div class="note" style="margin-top:8px">All categories hidden — click a legend key to show them again.</div>` : ''}
+  </div>`;
+}
+
+function renderComposition() {
+  const el = document.getElementById('overviewComposition');
+  if (!el) return;
+  const eligible = getOverviewEligibleSwimmers();
+  if (eligible.length === 0) {
+    el.innerHTML = `<div class="empty"><div class="empty-icon">👥</div><p>No swimmers loaded yet.</p></div>`;
+    return;
+  }
+
+  // ── Squad ──
+  const squadCounts = {};
+  eligible.forEach(sw => { const k = sw.squad || 'No Squad'; squadCounts[k] = (squadCounts[k] || 0) + 1; });
+  const squadKeys = [...SQUAD_DISPLAY_ORDER.filter(k => squadCounts[k]), ...(squadCounts['No Squad'] ? ['No Squad'] : [])];
+  const squadItems = squadKeys.map(k => ({ key: k, label: k, value: squadCounts[k], color: SQUAD_COLORS[k] || 'var(--text3)' }));
+
+  // ── Gender ──
+  const genderCounts = { Boys: 0, Girls: 0 };
+  eligible.forEach(sw => { if (genderCounts[sw.gender] != null) genderCounts[sw.gender]++; });
+  const otherGenderCount = eligible.length - genderCounts.Boys - genderCounts.Girls; // unrecognised gender values, surfaced rather than silently dropped
+  const genderItems = [
+    ...(genderCounts.Boys  ? [{ key: 'Boys',  label: 'Boys',  value: genderCounts.Boys,  color: GENDER_COLORS.Boys  }] : []),
+    ...(genderCounts.Girls ? [{ key: 'Girls', label: 'Girls', value: genderCounts.Girls, color: GENDER_COLORS.Girls }] : []),
+  ];
+
+  // ── Age ── (cycles through the existing avatar palette — no fixed color per age makes sense)
+  const ageCounts = {};
+  eligible.forEach(sw => { const a = getCurrentAge(sw.dob); if (isFinite(a)) ageCounts[a] = (ageCounts[a] || 0) + 1; });
+  const ageKeys = Object.keys(ageCounts).map(Number).sort((a, b) => a - b);
+  const ageItems = ageKeys.map((a, i) => ({ key: String(a), label: String(a), tooltipLabel: `Age ${a}`, value: ageCounts[a], color: AVATAR_COLORS[i % AVATAR_COLORS.length].color }));
+
+  el.innerHTML = `<div class="ov-comp-grid">
+    ${renderCompChart('gender', 'By Gender', genderItems)}
+    ${renderCompChart('squad', 'By Squad', squadItems)}
+    ${renderCompChart('age', 'By Age', ageItems)}
+  </div>` + (otherGenderCount > 0 ? `<div class="note" style="margin-top:10px">+${otherGenderCount} with an unrecognised gender value not shown in the Gender chart.</div>` : '');
+}
+
+// Small transparency note under Composition — the Overview applies the same default
+// exclusion gates as County/Regional, so it should say so rather than let the counts look
+// like the "whole" squad when a Former/hidden swimmer isn't actually counted.
+function renderOverviewExclusionNote() {
+  const el = document.getElementById('overviewExclNote');
+  if (!el) return;
+  const former = SWIMMERS.filter(sw => !sw.hidden && sw.squad === 'Former Swimmer').length;
+  const hidden = SWIMMERS.filter(sw => sw.hidden).length;
+  const parts = [];
+  if (former) parts.push(`${former} Former Swimmer${former === 1 ? '' : 's'}`);
+  if (hidden) parts.push(`${hidden} hidden swimmer${hidden === 1 ? '' : 's'}`);
+  el.textContent = parts.length ? `${parts.join(' and ')} not included above.` : '';
+}
+
+// ── Master render ─────────────────────────────────────────────────
+function renderOverview() {
+  renderHotList();
+  renderBubbleList();
+  renderComposition();
+  renderOverviewExclusionNote();
+}
+
 function setStatusFilter(prefix, val) {
   const p  = prefix === 'county' ? 'c' : 'r';
   const el = document.getElementById(p + 'Status');
@@ -1793,6 +2418,7 @@ function showTab(name, btn) {
   // a coach expanding a card while browsing shouldn't leave every card expanded next time
   // they switch back to this tab.
   if (name === 'county' || name === 'regional') collapseAllState[name] = true;
+  if (name === 'overview')        renderOverview();
   if (name === 'county')          renderCounty();
   if (name === 'regional')         renderRegional();
   if (name === 'county-editor')    { updateMetaDisplay('county');   renderQTEditor('county'); }
@@ -2004,7 +2630,7 @@ function applySwimmersUpload(clean, mode) {
   }
   checkLocalStorageSize();
   refreshDataModalStatus();
-  renderCounty(); renderRegional();
+  renderCounty(); renderRegional(); renderOverview();
 }
 
 // ── QT: manual upload (county / regional) ──────────────────────
@@ -2058,7 +2684,7 @@ function applyQTUpload(prefix, rawData, mode) {
   checkLocalStorageSize();
   refreshDataModalStatus();
   updateMetaDisplay(prefix);
-  renderCounty(); renderRegional();
+  renderCounty(); renderRegional(); renderOverview();
 }
 
 // ── QT: sync from GitHub ────────────────────────────────────────
@@ -2080,7 +2706,7 @@ async function syncQTFromGitHub(prefix) {
     checkLocalStorageSize();
     refreshDataModalStatus();
     updateMetaDisplay(prefix);
-    renderCounty(); renderRegional();
+    renderCounty(); renderRegional(); renderOverview();
     setDataStatus('success', `✅ ${label} QT synced — ${parsed.times.length} row(s) loaded from GitHub.`);
   } catch (err) {
     console.error('GitHub QT sync error:', err);
@@ -2125,7 +2751,7 @@ function clearData(kind) {
   refreshDataModalStatus();
   updateMetaDisplay('county');
   updateMetaDisplay('regional');
-  renderCounty(); renderRegional();
+  renderCounty(); renderRegional(); renderOverview();
   setDataStatus('success', `✅ Cleared ${labels[kind]}.`);
 }
 
@@ -2228,7 +2854,7 @@ function saveSwimmer() {
   localStorage.setItem('coach_SWIMMERS', JSON.stringify(SWIMMERS));
   checkLocalStorageSize();
   hideAddSwimmerModal();
-  renderCounty(); renderRegional();
+  renderCounty(); renderRegional(); renderOverview();
 }
 
 // ============================================================
@@ -2267,7 +2893,7 @@ function deleteSwimmer(swId) {
   if (!confirm(`Remove ${sw.name} from the squad? This cannot be undone.`)) return;
   SWIMMERS = SWIMMERS.filter(s => s.id !== swId);
   localStorage.setItem('coach_SWIMMERS', JSON.stringify(SWIMMERS));
-  renderCounty(); renderRegional();
+  renderCounty(); renderRegional(); renderOverview();
 }
 
 
@@ -2624,10 +3250,11 @@ window.addEventListener('DOMContentLoaded', () => {
   const savedToken = localStorage.getItem('coach_SYNC_TOKEN') || '';
   const tokenInput = document.getElementById('syncTokenInput');
   if (tokenInput && savedToken) tokenInput.value = savedToken;
-  // Render county on load; regional + editors render lazily on first tab switch
+  // Render Overview on load (it's the default active tab); County/Regional/editors
+  // render lazily on first switch to each, same as before.
   updateMetaDisplay('county');
   updateMetaDisplay('regional');
-  renderCounty();
+  renderOverview();
 });
 
 // ============================================================
@@ -2776,6 +3403,7 @@ async function startSync() {
     // Re-render in place — no page reload needed
     renderCounty();
     renderRegional();
+    renderOverview();
     refreshDataModalStatus();
 
     // Auto-close after 2.5 s on success (with countdown in close button)

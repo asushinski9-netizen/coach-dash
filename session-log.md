@@ -32,72 +32,78 @@ Fixed a third-party ("Gemini") regression in `startSync()` — wrong localStorag
 
 ## v2.3 — June–July 2026
 
-Multi-turn session covering: GitHub QT sync, a full Manage Data modal redesign, conflict resolution for manual uploads, championship-date de-hardcoding, and a cleanup pass. Full turn-by-turn history of that session is preserved in the v2.3 handover; summary: `QT_DATA_URL`/`SE_QT_DATA_URL` GitHub sync added, Manage Data modal rebuilt as one card per source with Replace/Merge conflict resolution, standalone Sync FAB folded into Manage Data, Clear Data added, hardcoded `COUNTY_CHAMPS_DATE`/`REGIONAL_CHAMPS_DATE` constants removed in favour of reading championship dates from QT metadata (`getCountyChampsDate()`/`getRegionalChampsDate()`), and a full doc refresh.
+Multi-turn session covering: GitHub QT sync, a full Manage Data modal redesign, conflict resolution for manual uploads, championship-date de-hardcoding, and a cleanup pass. Summary: `QT_DATA_URL`/`SE_QT_DATA_URL` GitHub sync added, Manage Data modal rebuilt as one card per source with Replace/Merge conflict resolution, standalone Sync FAB folded into Manage Data, Clear Data added, hardcoded `COUNTY_CHAMPS_DATE`/`REGIONAL_CHAMPS_DATE` constants removed in favour of reading championship dates from QT metadata, and a full doc refresh.
 
 ---
 
-## v2.4 — July 2026 (this session)
+## v2.4 — July 2026
 
-Continuation session — no single big feature, a sequence of real bugs found via direct user testing/reporting, each traced to root cause in the actual code (not guessed at) and verified with executable proof before and after the fix, mostly using jsdom to run the real file rather than just reading it. Turn-by-turn:
+Continuation session — a sequence of real bugs found via direct user testing/reporting, each traced to root cause and verified with executable proof (mostly jsdom) before and after the fix:
 
-### Turn 1 — Sheets-synced swimmers vanishing on manual merge
-**Reported:** synced 62 swimmers from Google Sheet, uploaded a 22-swimmer file choosing "Merge," and the original 62 disappeared entirely.
-**Root cause:** `mergeSwimmers()` is shared by two call sites (Sheets sync and manual upload) but was written assuming the incoming set is always a *complete, authoritative* snapshot of a source — true for a Sheets sync, false for an arbitrary uploaded file. Its local-only-swimmer-retention step explicitly skipped anything tagged `source:'sheet'`, on the assumption that absence from a fresh sheet pull means genuine removal upstream. Called with a 22-swimmer upload instead of a full sheet snapshot, all 62 existing sheet-tagged swimmers hit that skip and were silently dropped — not "removed," not counted in stats, just omitted from the merged array.
-**Fix:** added an `opts.sourceIsAuthoritative` parameter to `mergeSwimmers()`. Sheets sync passes `true` (unchanged behaviour). Manual upload now passes `false`, so existing swimmers absent from the uploaded file are always kept regardless of their `source` tag. Verified via two isolated simulations extracted from the actual file: the reported 62+22 scenario (all 84 retained) and a Sheets-sync-with-genuine-removal scenario (unchanged correct behaviour — a swimmer dropped from a fresh sheet pull is still correctly demoted to local and handled per merge mode).
-
-### Turn 2 — Stale sync timestamp + US date format
-**Reported two issues:** (a) after Clear All Data, opening the Sync modal still showed an old "Last synced" timestamp; (b) all sync timestamps displayed in US `M/D/YYYY` format.
-**Root cause (a):** the Sync modal has its own timestamp span (`#syncLastTime`), separate from the Manage Data modal's inline spans. It was only ever written once, at `DOMContentLoaded` — never re-read when the modal itself opened, so a Clear Data action (which correctly updated localStorage and the *other* display) left this one stale until a full page reload.
-**Root cause (b):** every sync-timestamp display called `.toLocaleString()` with no locale argument, defaulting to the browser's locale.
-**Fix:** added `fmtDateTime()` (fixed `DD/MM/YYYY, HH:MM` 24hr format, locale-independent) and used it at all four call sites. `showSyncModal()` now re-reads `coach_SHEETS_LAST_SYNC` from localStorage every time it opens instead of relying on stale DOM state from page load.
-
-### Turn 3 — "Not shown" diagnostic added (proactive, in response to a validation request)
-User asked to re-validate why only 47 of 62 synced swimmers were visible with no filters applied, suspecting missing PBs, and asked for a Google Sheet cross-check. Since the actual private Sheet isn't reachable from this environment, built the validation into the dashboard instead: traced the root cause to swimmer cards being fully omitted (not just individual rows) whenever they produce zero comparison rows, with zero indication why. Found a second contributing factor: Sheets-synced data skips the manual-upload validation path (`sanitiseSwimmersData`) entirely, so a malformed `dob` or unexpected `gender` value produces the identical "vanished swimmer" symptom as a genuine zero-PB swimmer. Added `diagnoseZeroRowSwimmer()` and an expandable `<details>` footer note per tab, splitting excluded swimmers into "likely data issue" (bad dob/gender — QT never matched at all) vs. "genuinely no PB recorded." Verified against four synthetic cases run through the real extracted functions.
-
-### Turn 4 — Collapse All as the default
-Requested: County/Regional tabs should default to all cards collapsed. `collapseAllState` defaults changed to `true`; `showTab()` now force-resets it to `true` every time a swimmer-list tab is opened (not just on first load), so re-visiting a tab always re-collapses even if the coach had expanded everything earlier in the session; `resetFilters()` updated to match; `updateCollapseBtnVisibility()` now also syncs the button label on every render instead of only after an explicit toggle click, so it can't drift out of sync regardless of entry point. Verified with a real jsdom interaction test: load → expand all → switch tabs → switch back — re-collapses correctly at each tab-open, button label always accurate.
-
-### Turn 5 — Diagnostic footnote gave a wrong reason under an active filter
-**Reported:** with Status=Qualified applied, 14 shown / 70 not shown, footnote said all 70 had "no PB recorded" — false; most simply weren't Qualified.
-**Root cause:** `diagnoseZeroRowSwimmer()`'s fallback branch fired whenever a swimmer had any QT-matching event at all, regardless of whether they actually had a PB recorded — it never checked for a PB, just assumed the two-way split (data issue vs. no-PB) was exhaustive.
-**Fix:** added a third category, `'filtered'` — swimmer has real PB(s) but none satisfy the currently active Course/Stroke/Status filter, with a message describing their actual best status. Also fixed the severity framing: the summary line's alarming gold/⚠️ styling is now reserved for genuine data issues; a purely filter-driven exclusion count renders in neutral grey, since a status filter hiding most of the squad is expected behaviour, not a problem. Verified against the exact reported shape (a real "Outside" PB under a Qualified filter) alongside the two pre-existing categories to confirm no regression.
-
-### Turn 6 — Championship banner misstated a date range as a single day
-**Reported:** "The 2026 County Championships took place on 15 Feb 2026" is wrong — that's the last day of a multi-day event, not the only day.
-**Root cause:** the banner used the single derived `champDate` value (which is `dateTo` when both dates are set) as if it were "the" date of the event.
-**Fix:** added `describeChampDates()`, which inspects `dateFrom`/`dateTo` from QT meta directly and produces accurate phrasing for five distinct shapes: date range, genuine single-day event, only `dateTo` known ("concluded on"), only `dateFrom` known ("began on"), each in both past- and upcoming-tense. Applied to both banner branches (the upcoming-tense branch had the identical bug, not previously reported). Verified all five permutations plus the exact reported date pair.
-
-### Turn 7 — Full codebase review (requested)
-Systematic pass: duplicate functions/variables/DOM IDs (none), static analysis for unused functions (22 candidates, all false positives — called via inline `onclick`, confirmed against full HTML), localStorage/JSON.parse error-safety (clean, all routed through `lsGet()` or an equivalent local try/catch), leftover debug statements (none), silently-swallowed errors (one, intentional and documented).
-
-**Found and fixed three real, exploitable stored-XSS vulnerabilities**, each confirmed with an actual jsdom proof-of-concept before and after the fix — not inferred from reading the code:
-1. `escAttr()` only escaped backslash/single-quote (the inner JS-string-literal layer of `onclick="fn('${x}')"`), never double-quote (the outer HTML-attribute layer). A crafted `id` in a manually-uploaded `swimmers_pb.json` (never validated by `sanitiseSwimmersData`) broke straight out of the attribute and injected a real, browser-executed event handler. Fixed by layering HTML-entity escaping on top of the existing JS-string escaping, in the correct order.
-2. QT Editor rendered `gender`/`event` as raw, unescaped HTML text content — a crafted `event` string in an uploaded QT file injected a real DOM element (confirmed: `<img onerror=...>` executed). Wrapped both in `escHtml()`.
-3. `sw.gender` rendered unescaped in the swimmer card meta line — lower risk in practice since manual uploads validate gender strictly, but Sheets-synced data bypasses that validation entirely (per Turn 3's finding), so it wasn't actually guaranteed safe. Fixed for consistency with how `sw.squad` was already handled.
-
-All three fixes re-verified with a full regression pass (apostrophe in a name, ampersand in a competition title) to confirm no double-encoding or display breakage on legitimate data.
-
-**Flagged, not fixed:** the Sheets sync token is sent as a URL query parameter (`?token=...`), not a header — a known anti-pattern (browser history, server/proxy access log exposure). Not fixed because the correct remedy (POST with the token in a JSON body) requires a coordinated change to `apps_script_v2.2.1.gs`, which is out of scope this session and not available to inspect — changing only the client risks breaking a currently-working sync without the ability to test against the real Apps Script endpoint.
-
-### Turn 8 — Former Swimmers unaccounted for in the "not shown" diagnostic
-**Reported:** 85 total swimmers, 69 shown, 15 reported as no-PB — leaves 1 swimmer unaccounted, who turned out to be a Former Swimmer.
-**Root cause:** the Former Swimmer gate (and the merge `hidden` flag, same shape of bug) excludes swimmers from `visibleSwimmers` — one step *before* the Turn 3 diagnostic even runs, since that diagnostic only ever inspected swimmers that made it into `visibleSwimmers` in the first place.
-**Fix:** the diagnostic now also scans the full `SWIMMERS` array for the two *default/implicit* exclusion gates (Former Swimmer, merge-hidden) and adds them as their own labelled buckets. Deliberately did **not** extend this to explicit Gender/Age/Squad/Name-search filter exclusions — those are self-evident from the visible filter bar the coach just set, unlike a default gate that's active even with no filters applied. Extracted the note-building logic (previously duplicated three times across renderTab's exit paths) into a shared `buildFooterNote()` so all three paths — including the two early-return "no data"/"no matches" cases — report former/hidden swimmers consistently. Verified against the exact reported shape (85 total: 69 shown, 15 no-PB, 1 former) — footer note reconciles exactly, and re-confirmed the "Show Former Swimmers" toggle still correctly reveals the swimmer afterward.
+- **Turn 1:** Sheets-synced swimmers vanishing on manual merge — `mergeSwimmers()` assumed the incoming set was always an authoritative snapshot. Added `opts.sourceIsAuthoritative` so manual-upload merges keep existing swimmers absent from the uploaded file.
+- **Turn 2:** Stale sync timestamp + US date format — added `fmtDateTime()`, re-read `coach_SHEETS_LAST_SYNC` on every Sync modal open.
+- **Turn 3:** "Not shown" diagnostic added — `diagnoseZeroRowSwimmer()` + expandable footer note splitting excluded swimmers into likely-data-issue vs. genuinely-no-PB.
+- **Turn 4:** Collapse All as the default state on every County/Regional tab (re-)open.
+- **Turn 5:** Diagnostic footnote gave a wrong reason under an active filter — added a third `'filtered'` category.
+- **Turn 6:** Championship banner misstated a date range as a single day — added `describeChampDates()`.
+- **Turn 7:** Full codebase review — found and fixed three real stored-XSS vulnerabilities (`escAttr()` double-layer escaping, QT editor `escHtml()`, `sw.gender` escaping).
+- **Turn 8:** Former Swimmers unaccounted for in the "not shown" diagnostic — footer note now also scans the full `SWIMMERS` array for the two default/implicit exclusion gates.
 
 ---
 
-## Files — current state (v2.4)
+## v2.5 — July 2026 (this session) — Overview tab
+
+Headline feature: a new **🌅 Overview** tab — a squad-wide "coach's morning briefing" — built from scratch, then refined across many rounds of user feedback (mostly visual/UX polish, one real production bug found and fixed along the way). Now the default tab on page load.
+
+### Build-out
+
+- **Initial four-section design:** Squad Qualification Snapshot (combined County+Regional stat cards), Hot Right Now (recent PBs), The Bubble List (swimmers close to qualifying), Squad Composition (squad/gender/age breakdown). All deliberately unfiltered — no Squad/Gender filter bar of its own, by design (it's a whole-squad glance, not another filterable list like County/Regional).
+- **Squad Qualification Snapshot removed** shortly after — user called it overkill/duplicate of information already visible per-tab. Its "X Former Swimmers / hidden swimmers not shown" transparency note was preserved and moved under Squad Composition instead of being deleted.
+- **Hot Right Now** and **The Bubble List** were both converted from flat lists to **per-swimmer card grids** (5-up desktop / 2-up mobile) — at this age, a single gala usually produces more than one PB or bubble opportunity for the same swimmer, so grouping by swimmer (not by row) was the right shape from early on.
+- **Squad Composition** went through three complete redesigns before landing: plain horizontal bars → single stacked bar (squad) + histogram (age) + donut (gender) → three **matching interactive pie/donut charts**, each with a clickable legend that removes/re-adds a category and recomputes the remaining slices' percentages live, plus a center total that updates to match. Age automatically gets a 2-column legend once it has more than 6 categories.
+- **Per-card expand/collapse:** each swimmer's card shows only their single closest/most-recent entry by default, with a "▾ +N more" link revealing the rest. Same pattern extended to the section-level "Showing 10 of 15 swimmers..." notes — a "▾ Show all" / "▴ Show fewer" link reveals or re-collapses the full list, for both sections.
+- **Hot Right Now got a configurable day cutoff** (default 30 days, matching a "last month" framing), after the user noticed the feed had no recency window at all — a small/newer squad could otherwise surface a genuinely old PB just because nothing newer existed to displace it. Ordering tie-break: most-recent-date first, then most-PBs-on-that-date (not alphabetical, which is what a plain date sort degenerates to when many swimmers share a gala date) — chosen over "fastest for their age" specifically to keep the feature about *recent activity*, not re-surfacing the same standout swimmers every time.
+- **The Bubble List margin** defaults to 5% (raised from an initial 3%), with an "Include hidden / Former Swimmers" toggle that tags any included swimmer with why they're normally hidden. Sort: smallest gap first, tie-broken by most opportunities (not alphabetical).
+
+### Entry-row design iteration (the bulk of the back-and-forth this session)
+
+The single most-revised piece of UI this session. In order:
+1. Flat one-line flex row (event, course, time, date) with the date pushed to the far right via `margin-left:auto` — worked, but looked scattered.
+2. A genuine spreadsheet-style CSS Grid (fixed-width columns, all 5 pieces same font-size) — fixed the alignment but user found it visually flat/uninteresting.
+3. **Option A/B/C explored** (colored accent + grouped text / time-as-hero-stat two-line / chip-grouped) — user picked B.
+4. B's first implementation stretched time and date apart with `space-between` on a shared baseline — user reported "values are all over the place." Fixed by **grouping time and date into one right-aligned result block** (time leads, date sits directly beneath it as a caption) instead of spreading them across the row.
+5. Added a **colored left accent bar keyed to stroke** (Free/Back/Breast/Fly/IM, reusing hex values already established elsewhere in the app for squad/gender) to visually thread the two columns together.
+6. Applied the same two-column layout + accent bar to **The Bubble List** for consistency, replacing its percentage-based stat with the actual **time difference in seconds and the QT cutoff itself** ("0.12s off" / "QT 2:24.00") per a follow-up request — dropped a leading `+` sign after it was flagged as ambiguous (every bubble entry is by definition still short of qualifying, so a bare sign invites the wrong reading).
+7. Bubble List's meta line split into **two rows** — championship type (County/Regional) on its own line, event + course underneath — on request, for a cleaner scan when comparing a swimmer's County vs Regional opportunities.
+8. Considered adding CT (Consideration) times to Bubble List entries — reasoned through when it would/wouldn't be redundant (almost always redundant at the default margin, since QT-proximity implies CT is already cleared; only meaningful at wide margins for Outside-status swimmers) and **declined** per the user's call rather than building it speculatively.
+
+### Real production bug found and fixed (not just polish)
+
+**Mobile Age-composition legend digit truncation** — some 2-digit ages (12, 13, 14, 15) rendered as a bare "1"; others (16, 17, 18, 19) rendered fine. Root cause was **not** container width (already flexible) but `.ov-legend-label { min-width: 0 }`, which let a long *adjacent* count string (e.g. "15 (18%)" vs "7 (8%)") squeeze that specific row's label down to sub-one-character width — exactly matching the observed pattern (truncation correlated with longer counts, not with digit count). Fixed with `min-width: 2.4ch`, guaranteeing at least 2 digits regardless of the neighbouring count's length.
+
+### Other polish this session
+
+- Mobile header: tagline ("County & Regional QT Tracker") now drops to its own row under the club name via a hideable separator span, instead of wrapping mid-phrase.
+- Mobile tab bar: Overview now takes the full first row (`:first-child` selector, no markup change needed), pushing County/Regional to pair up on row 2.
+- Expanded card background changed from gray to a light blue tint (reusing the same rgba-blue pattern already established for the info banner, so it's correct in both light and dark theme rather than a flat hardcoded color).
+- Mobile stroke abbreviations (FR/BK/BR/FLY/IM) via the dashboard's existing `.col-full`/`.col-abbr` pattern — same mechanism already used elsewhere, not a new one.
+
+### Testing approach
+
+All of the above was verified with a dedicated jsdom test harness (`test_overview.js`, ~430 lines, not part of the shipped dashboard) run against the real extracted `<script>` block and the actual project sample data files, rather than read-through alone. Caught and fixed two real bugs in the *test* itself along the way (a test-ordering issue where an earlier mutation was read by a later "default value" assertion; a tie-break test whose synthetic fixture data accidentally exercised the wrong code path). Every visual/behavioral change in this log was confirmed with a real rendered sample and/or a `getComputedStyle` assertion, not just presence-of-markup.
+
+---
+
+## Files — current state (v2.5)
 
 | File | Version | Description |
 |---|---|---|
-| `index.html` | v2.4 | Main dashboard — ~2,930 lines |
-| `apps_script_v2.2.1.gs` | v2.2.1 | Google Apps Script — 252 lines, unchanged since v2.2.1 |
-| `start.py` | v2.2 | Localhost launcher (Mac/Linux) |
-| `start.bat` | v2.2 | Localhost launcher (Windows) |
-| `SETUP.md` | v2.2 | Apps Script deployment guide |
-| `project-brief.md` | v2.4 | Project overview and goals |
-| `architecture.md` | v2.4 | Code structure and data flow |
-| `data-schema.md` | v2.4 | All JSON schemas |
-| `known-bugs-and-fixes.md` | v2.4 | Bug log |
+| `index.html` | v2.5 | Main dashboard — ~3,550 lines |
+| `apps_script_v2.2.1.gs` | v2.2.1 | Google Apps Script — unchanged since v2.2.1 |
+| `test_overview.js` | v2.5 | jsdom dev-time test harness for the Overview tab (not shipped) — ~430 lines |
+| `project-brief.md` | v2.5 | Project overview and goals |
+| `architecture.md` | v2.5 | Code structure and data flow |
+| `data-schema.md` | v2.4 | All JSON schemas — unchanged this session |
+| `known-bugs-and-fixes.md` | v2.5 | Bug log |
 | `session-log.md` | this file | Full session history |
-| `coach_dashboard_handover.md` | v2.4 | Executive handover, written for a fresh chat session |
+| `coach_dashboard_handover.md` | v2.5 | Executive handover, written for a fresh chat session |
