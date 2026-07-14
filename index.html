@@ -316,9 +316,12 @@ table.swimmer-tbl tr:hover td { background: var(--surface2); }
 .name-search:focus { border-color: var(--accent); }
 
 /* ── SQUAD BADGE ─────────────────────────────────────────────── */
+/* line-height is a fixed px value (not a relative multiplier) so this pill renders at the
+   same box height as .gender-pill-mobile even though the two use different font-sizes —
+   see .gender-pill-mobile below for the matching value and why. */
 .squad-badge {
-  display: inline-block; padding: 1px 7px; border-radius: 20px;
-  font-size: 0.62rem; font-weight: 600;
+  display: inline-block; padding: 2px 8px; border-radius: 20px;
+  font-size: 0.62rem; font-weight: 600; line-height: 15px;
   background: rgba(26,86,196,0.10); color: var(--accent);
 }
 .squad-badge.squad-development { background:rgba(8,145,178,0.13);  color:#0891b2; }
@@ -339,8 +342,14 @@ table.swimmer-tbl tr:hover td { background: var(--surface2); }
 .swimmer-pills { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
 .gender-pill-mobile {
   display: none; /* hidden on desktop; shown on mobile via media query */
+  /* Root cause of the mismatched-height pill bug: this used a relative line-height (1.6)
+     while .squad-badge used the browser default — two different font-sizes each scaling
+     their own relative line-height meant the two pills' boxes could never match, however
+     their padding was tuned. Both now share this exact fixed 15px line-height + 2px/8px
+     padding, so the box height is identical regardless of the (deliberately larger) glyph
+     font-size needed to keep the ♀/♂ symbol legible. */
   padding: 2px 8px; border-radius: 20px;
-  font-size: 0.75rem; font-weight: 900; line-height: 1.6;
+  font-size: 0.75rem; font-weight: 900; line-height: 15px;
 }
 .gender-pill-boys  { background: rgba(26,86,196,0.13); color: #1a56c4; }
 .gender-pill-girls { background: rgba(219,39,119,0.13); color: #db2777; }
