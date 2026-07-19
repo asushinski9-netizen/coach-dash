@@ -94,16 +94,51 @@ All of the above was verified with a dedicated jsdom test harness (`test_overvie
 
 ---
 
-## Files — current state (v2.5)
+## v2.6 — July 2026 (this session) — Codebase review, security/a11y hardening, mobile fixes
+
+A two-part session: two direct mobile bug reports handled first, then a full deliberate codebase review at the user's request, with everything it surfaced rolled out in the same session, plus one more mobile UX fix in a final follow-up turn.
+
+### Part 1 — Two direct mobile bug reports
+
+1. **Gender-pill / squad-badge height mismatch** (screenshot: "AA"/"AC"/"AD" swimmer cards, female/male symbol pill visibly taller than the squad badge next to it). Root cause: `.gender-pill-mobile` used a relative `line-height: 1.6` while `.squad-badge` used the browser default — combined with their different `font-size`s, the two pills could never match height regardless of padding tuning. Fixed by giving both a shared fixed `line-height: 15px` + `padding: 2px 8px`. CSS-only, verified via `getComputedStyle` that both now compute identically.
+2. **Bubble List event text wrapping on narrow phones** (screenshot: event/course text on a second line on some cards). Looked like "font too big"; root cause was actually a specificity bug — `.ov-entry-stat-meta .badge` (two classes) beat the generic mobile `.badge` override regardless of media query, so the SC/LC course pill never actually shrank on mobile at all, staying at desktop size next to already-abbreviated event text. Fixed with a matching-specificity mobile override, plus tightened `.ov-entry-stat-meta`'s own font-size/gap. Since Hot Right Now and Bubble List share `.ov-entry-stat-meta`, one fix covered both automatically — no separate change needed for "keep it consistent," as requested.
+
+### Part 2 — Full codebase review (user-requested) → 20-item punch list, all rolled out
+
+The user asked for "a thorough review of the codebase for any leftover comments, bugs, security issues, UI concerns, improvement opportunities etc." Produced a prioritised 20-item list (security, bugs, UI/accessibility, improvement opportunities) presented for evaluation before any changes — the user said "roll them all out." All 20 were implemented, plus **two more found while implementing them**, not on the original list:
+
+- **`.tbl-wrap` had zero matching CSS** — the QT Editor's table-wrapper class was used in markup with nothing defining it, so no horizontal-scroll containment. Added, mirroring `.swimmer-table-wrap`.
+- **A real stored-XSS vulnerability**, found while adding defense-in-depth escaping to a *different*, non-exploitable spot. Hot Right Now's `collectRecentPbs()` reads `sw.pbs` directly rather than going through the `ALL_EVENTS`-constrained lookup path everything else uses, and rendered `pb.course` completely unescaped inside a `class="badge ${e.course}"` attribute — with zero validation of `pb.event`/`pb.course` anywhere in the sanitiser at the time. Fixed at the root (sanitiser now validates both) and at render time (escaped, as defense-in-depth). Verified with a dedicated jsdom XSS probe: payload rejected by the sanitiser; when injected directly bypassing it, renders as inert escaped text with zero script execution and zero `<img>` elements actually created in the DOM.
+
+**Security:** every `localStorage.setItem()` write wrapped (previously only reads were) via a new `lsSet()`, with real user-facing failure messages instead of silent uncaught throws; Sheets-sync data now runs through the same sanitiser manual uploads always used (previously bypassed entirely); PB `date` validated (a bad one is dropped, not left to render as "NaN undefined NaN" or corrupt Hot Right Now's sort); QT upload *and* GitHub sync both validated for the first time (`sanitiseQTData()`, closing Open Issue #7); Apps Script's token check hardened to a constant-time-ish comparison; Apps Script's `setToken()` guarded against an accidental overwrite; the long-stale legacy-localStorage-key fallback (Open Issue #2) completed its migration instead of being read forever.
+
+**Accessibility:** removed the pinch-zoom-disabling viewport lock (a WCAG 1.4.4 failure); added keyboard support (`role="button"`, `tabindex`, `kbActivate()`, a visible focus ring) to every mouse-only "clickable div" (swimmer headers, stat cards, chart legend items); added real dialog semantics (`role="dialog"`, `aria-modal`, `aria-labelledby`) plus focus-trap-and-restore to all four modals; added `aria-label`s to the FAB buttons (previously `title`-only) with a synced `aria-expanded`.
+
+**Data-quality / UX:** a real (if one-time-per-session) user-facing warning when localStorage approaches its size limit, replacing a console-only log; the Overview tab's day-cutoff and margin% now persist as coach preferences across reloads (the rest of its session state stays intentionally ephemeral, unchanged); GitHub QT sync now retries transient failures with backoff instead of failing on the first blip; the name-search filter debounces instead of re-rendering the full tab per keystroke; sanitisation results (skipped/dropped/coerced counts) now show up in the actual status message, not just the console; `pb.competition` (collected since early Overview work, never displayed) now shows as a tooltip on Hot Right Now entries; `r.event`/`r.course`/bubble-list `e.course` escaped for consistency even where already safe by construction.
+
+Every change verified with `node --check` after each edit, targeted jsdom probes for the security/accessibility-sensitive changes specifically (XSS payload rejection, focus-trap/restore behaviour, dock visibility toggling, retry-with-backoff behaviour against a mocked flaky `fetch`), and a full run of the existing `test_overview.js` suite at multiple checkpoints — no regressions at any point. A synthetic `swimmers_pb.json` was generated purely to exercise the test suite locally; it isn't part of the delivered files.
+
+### Part 3 — Follow-up: Manage Data modal warnings hidden on mobile
+
+Reported after the review was already shipped: on mobile, status/error/conflict messages in Manage Data sat below three data-cards in normal document flow, so an upload-triggered merge conflict or sync error could go unnoticed unless the coach scrolled down afterward (desktop was fine — taller viewport). Fixed by wrapping the three elements in a dock that becomes `position: sticky` at the bottom of the modal's own scroll area the instant any of them has something to show (`refreshStatusDockVisibility()`, toggling a `dock-visible` class), and disappears with no empty floating bar otherwise. Mobile-only; desktop untouched as requested. Verified the toggle behaves correctly across all five show/hide entry points (status, error, conflict — set and cleared).
+
+### Versioning note
+
+Two Apps Script hardening changes (token comparison, `setToken()` guard) came out of the review too. The user caught that this should bump the `.gs` file's own version rather than silently changing behaviour under the old v2.2.1 label — file renamed to `apps_script_v2.2.2.gs` with an updated header comment. `index.html`'s `<title>` tag was also found stale (still said "v2.2" despite being several versions past that) and corrected to v2.6.
+
+---
+
+## Files — current state (v2.6)
 
 | File | Version | Description |
 |---|---|---|
-| `index.html` | v2.5 | Main dashboard — ~3,550 lines |
-| `apps_script_v2.2.1.gs` | v2.2.1 | Google Apps Script — unchanged since v2.2.1 |
-| `test_overview.js` | v2.5 | jsdom dev-time test harness for the Overview tab (not shipped) — ~430 lines |
-| `project-brief.md` | v2.5 | Project overview and goals |
-| `architecture.md` | v2.5 | Code structure and data flow |
-| `data-schema.md` | v2.4 | All JSON schemas — unchanged this session |
-| `known-bugs-and-fixes.md` | v2.5 | Bug log |
+| `index.html` | v2.6 | Main dashboard — ~3,910 lines |
+| `apps_script_v2.2.2.gs` | v2.2.2 | Google Apps Script — token-check + `setToken()` hardening this session |
+| `test_overview.js` | v2.5 | jsdom dev-time test harness for the Overview tab (not shipped) — ~430 lines, unchanged this session, still passes in full |
+| `project-brief.md` | v2.6 | Project overview and goals |
+| `architecture.md` | v2.6 | Code structure and data flow |
+| `data-schema.md` | v2.6 | All JSON schemas |
+| `known-bugs-and-fixes.md` | v2.6 | Bug log |
 | `session-log.md` | this file | Full session history |
-| `coach_dashboard_handover.md` | v2.5 | Executive handover, written for a fresh chat session |
+| `coach_dashboard_handover.md` | v2.6 | Executive handover, written for a fresh chat session |
+

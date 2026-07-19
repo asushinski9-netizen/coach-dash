@@ -2,8 +2,8 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0">
-<title>Broomfield Park SC — Coach Dashboard v2.2</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Broomfield Park SC — Coach Dashboard v2.6</title>
 <style>
 /* ── CSS Variables — matches swim-dash colour scheme ──────── */
 :root {
@@ -44,6 +44,13 @@ body.dark {
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
+/* Clickable "div" UI (swimmer headers, stat cards, chart legend items) now carries
+   role="button" tabindex="0" for keyboard access — this gives them a clear, on-brand focus
+   ring rather than relying on the browser's inconsistent default outline. */
+[role="button"]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
 body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; font-size: 14px; }
 
 /* ── HEADER ──────────────────────────────────────────────── */
@@ -210,6 +217,11 @@ select:focus { border-color: var(--accent); }
 
 /* ── SWIMMER TABLE ───────────────────────────────────────── */
 .swimmer-table-wrap { overflow-x: auto; }
+/* QT Editor's table wrapper — same overflow-scroll treatment as .swimmer-table-wrap above.
+   This rule was previously missing entirely: the class was used in renderQTEditor()'s markup
+   but had no matching CSS, so the QT Editor table had no horizontal-scroll containment and
+   could overflow its card on narrow desktop windows instead of scrolling within itself. */
+.tbl-wrap { overflow-x: auto; }
 table.swimmer-tbl   { width: 100%; border-collapse: collapse; }
 table.swimmer-tbl thead tr { background: var(--surface2); }
 table.swimmer-tbl th {
@@ -596,6 +608,26 @@ body.dark .ov-person-card.expanded { background: rgba(59,130,246,0.1); }
   /* Info banner */
   .info-banner { font-size: 0.70rem; }
 
+  /* Manage Data modal — status/error/conflict messages previously sat in normal document
+     flow below three separate data-cards (Swimmers/County/Regional), so on a short mobile
+     viewport a coach doing "upload a file → see the merge result/conflict" had no visual cue
+     anything happened unless they scrolled all the way down afterward — exactly what got
+     reported. Sticking this dock to the bottom of the modal's own scroll area (only once it
+     actually has something to show — see refreshStatusDockVisibility()) keeps it in view
+     regardless of scroll position, rather than relying on the coach to notice and scroll.
+     Desktop is left exactly as it was — a taller viewport means this wasn't an issue there. */
+  .data-modal-status-dock.dock-visible {
+    position: sticky;
+    bottom: -20px;              /* modal-box's own mobile padding, see below — cancelled so this sits flush */
+    margin: 10px -20px -20px;   /* bleed to the modal-box's edges */
+    padding: 10px 20px calc(14px + env(safe-area-inset-bottom, 0px));
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    box-shadow: 0 -6px 14px rgba(0,0,0,0.16);
+    z-index: 5;
+  }
+  .modal-box { padding: 20px; }  /* slightly tighter on mobile; matches the dock's cancel-margin above */
+
   /* Swimmer header */
   .swimmer-header { padding: 10px 12px; gap: 8px; }
   .swimmer-avatar { width: 30px; height: 30px; font-size: 0.68rem; }
@@ -688,7 +720,7 @@ body.dark .ov-person-card.expanded { background: rgba(59,130,246,0.1); }
       <div class="ov-controls-row">
         <label class="margin-input-group">
           Show PBs from the last
-          <input type="number" id="hotCutoffDays" value="30" min="1" max="365" step="1" onchange="renderHotList()">
+          <input type="number" id="hotCutoffDays" value="30" min="1" max="365" step="1" onchange="renderHotList(); lsSet('coach_HOT_CUTOFF_DAYS', this.value);">
           day(s)
         </label>
       </div>
@@ -702,7 +734,7 @@ body.dark .ov-person-card.expanded { background: rgba(59,130,246,0.1); }
       <div class="ov-controls-row">
         <label class="margin-input-group">
           Within
-          <input type="number" id="bubbleMargin" value="5" min="0.1" max="20" step="0.5" onchange="renderBubbleList()">
+          <input type="number" id="bubbleMargin" value="5" min="0.1" max="20" step="0.5" onchange="renderBubbleList(); lsSet('coach_BUBBLE_MARGIN', this.value);">
           % of a qualifying time
         </label>
         <label class="nopb-toggle">
@@ -784,7 +816,7 @@ body.dark .ov-person-card.expanded { background: rgba(59,130,246,0.1); }
       </div>
       <div class="fg name-fg">
         <span class="fl">Search Swimmer</span>
-        <input type="text" id="cName" class="name-search" placeholder="Name..." oninput="renderCounty()">
+        <input type="text" id="cName" class="name-search" placeholder="Name..." oninput="debouncedRenderCounty()">
       </div>
       <div class="fg reset-fg" style="align-self:flex-end">
         <button class="fbtn reset" onclick="resetFilters('county')">Reset Filters</button>
@@ -877,7 +909,7 @@ body.dark .ov-person-card.expanded { background: rgba(59,130,246,0.1); }
       </div>
       <div class="fg name-fg">
         <span class="fl">Search Swimmer</span>
-        <input type="text" id="rName" class="name-search" placeholder="Name..." oninput="renderRegional()">
+        <input type="text" id="rName" class="name-search" placeholder="Name..." oninput="debouncedRenderRegional()">
       </div>
       <div class="fg reset-fg" style="align-self:flex-end">
         <button class="fbtn reset" onclick="resetFilters('regional')">Reset Filters</button>
@@ -1055,11 +1087,11 @@ body.dark .ov-person-card.expanded { background: rgba(59,130,246,0.1); }
 </div>
 
 <!-- ══ LOAD DATA MODAL ════════════════════════════════════════ -->
-<div class="modal-overlay" id="dataModal">
+<div class="modal-overlay" id="dataModal" role="dialog" aria-modal="true" aria-labelledby="dataModalTitle">
   <div class="modal-box" style="max-width:620px">
-    <div class="modal-title">
+    <div class="modal-title" id="dataModalTitle">
       📤 Manage Data
-      <button class="modal-close" onclick="hideDataModal()">✕</button>
+      <button class="modal-close" onclick="hideDataModal()" aria-label="Close">✕</button>
     </div>
     <p style="font-size:0.78rem;color:var(--text3);margin-bottom:16px;line-height:1.5">
       Sync pulls the latest data automatically. Manual upload is for one-off files —
@@ -1129,17 +1161,19 @@ body.dark .ov-person-card.expanded { background: rgba(59,130,246,0.1); }
       </div>
     </div>
 
-    <div id="dataStatus" style="display:none;font-size:0.78rem;padding:10px 12px;border-radius:8px;margin-top:4px;margin-bottom:10px;line-height:1.6"></div>
-    <div id="dataError" style="display:none;color:var(--red);font-size:0.78rem;margin-bottom:12px;padding:8px 10px;background:rgba(220,38,38,0.08);border-radius:6px;"></div>
+    <div id="dataModalStatusDock" class="data-modal-status-dock">
+      <div id="dataStatus" style="display:none;font-size:0.78rem;padding:10px 12px;border-radius:8px;margin-top:4px;margin-bottom:10px;line-height:1.6"></div>
+      <div id="dataError" style="display:none;color:var(--red);font-size:0.78rem;margin-bottom:12px;padding:8px 10px;background:rgba(220,38,38,0.08);border-radius:6px;"></div>
 
-    <!-- ── CONFLICT RESOLUTION (shown when an uploaded file collides with existing data) ── -->
-    <div id="dataConflictBox" style="display:none;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:12px">
-      <div id="dataConflictMsg" style="font-size:0.8rem;color:var(--text);margin-bottom:10px;line-height:1.5"></div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap">
-        <button class="btn sec" onclick="cancelDataConflict()">Cancel</button>
-        <button class="btn sec" onclick="resolveDataConflict('replace')">🔁 Replace</button>
-        <button class="btn sec" id="dataConflictMergeBtn" onclick="resolveDataConflict('merge')" style="display:none">🔀 Merge — add new only</button>
-        <button class="btn primary" id="dataConflictMergeOverwriteBtn" onclick="resolveDataConflict('merge-overwrite')" style="display:none">🔀 Merge — overwrite matching</button>
+      <!-- ── CONFLICT RESOLUTION (shown when an uploaded file collides with existing data) ── -->
+      <div id="dataConflictBox" style="display:none;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:12px">
+        <div id="dataConflictMsg" style="font-size:0.8rem;color:var(--text);margin-bottom:10px;line-height:1.5"></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn sec" onclick="cancelDataConflict()">Cancel</button>
+          <button class="btn sec" onclick="resolveDataConflict('replace')">🔁 Replace</button>
+          <button class="btn sec" id="dataConflictMergeBtn" onclick="resolveDataConflict('merge')" style="display:none">🔀 Merge — add new only</button>
+          <button class="btn primary" id="dataConflictMergeOverwriteBtn" onclick="resolveDataConflict('merge-overwrite')" style="display:none">🔀 Merge — overwrite matching</button>
+        </div>
       </div>
     </div>
 
@@ -1152,11 +1186,11 @@ body.dark .ov-person-card.expanded { background: rgba(59,130,246,0.1); }
 
 
 <!-- ══ ADD SWIMMER MODAL ══════════════════════════════════════ -->
-<div class="modal-overlay" id="addSwimmerModal">
+<div class="modal-overlay" id="addSwimmerModal" role="dialog" aria-modal="true" aria-labelledby="asModalTitle">
   <div class="modal-box">
     <div class="modal-title">
       <span id="asModalTitle">👤 Add Swimmer</span>
-      <button class="modal-close" onclick="hideAddSwimmerModal()">✕</button>
+      <button class="modal-close" onclick="hideAddSwimmerModal()" aria-label="Close">✕</button>
     </div>
     <div class="form-grid-2" style="margin-bottom:12px">
       <div class="form-row" style="margin-bottom:0">
@@ -1205,11 +1239,11 @@ body.dark .ov-person-card.expanded { background: rgba(59,130,246,0.1); }
 </div>
 
 <!-- ══ SETTINGS MODAL ══════════════════════════════════════════ -->
-<div class="modal-overlay" id="settingsModal">
+<div class="modal-overlay" id="settingsModal" role="dialog" aria-modal="true" aria-labelledby="settingsModalTitle">
   <div class="modal-box" style="max-width:480px">
-    <div class="modal-title">
+    <div class="modal-title" id="settingsModalTitle">
       ⚙️ Settings
-      <button class="modal-close" onclick="hideSettingsModal()">✕</button>
+      <button class="modal-close" onclick="hideSettingsModal()" aria-label="Close">✕</button>
     </div>
     <p style="font-size:0.82rem;color:var(--text2);margin-bottom:16px;line-height:1.6">
       Stored in your browser only — never embedded in the dashboard file.
@@ -1238,11 +1272,11 @@ body.dark .ov-person-card.expanded { background: rgba(59,130,246,0.1); }
 </div>
 
 <!-- ══ SYNC FROM SHEETS MODAL ════════════════════════════════ -->
-<div class="modal-overlay" id="syncModal">
+<div class="modal-overlay" id="syncModal" role="dialog" aria-modal="true" aria-labelledby="syncModalTitle">
   <div class="modal-box" style="max-width:480px">
-    <div class="modal-title">
+    <div class="modal-title" id="syncModalTitle">
       🔄 Sync from Google Sheets
-      <button class="modal-close" onclick="hideSyncModal()">✕</button>
+      <button class="modal-close" onclick="hideSyncModal()" aria-label="Close">✕</button>
     </div>
     <p style="font-size:0.82rem;color:var(--text2);margin-bottom:16px;line-height:1.6">
       Fetches swimmer profiles and PBs from the Google Sheet. Credentials are read
@@ -1287,19 +1321,19 @@ body.dark .ov-person-card.expanded { background: rgba(59,130,246,0.1); }
 <div class="fab-dial">
   <div class="fab-children" id="fabChildren">
     <div class="fab-child-row">
-      <button class="fab-child" onclick="fabShowAddSwimmer()" title="Add Swimmer">👤</button>
+      <button class="fab-child" onclick="fabShowAddSwimmer()" title="Add Swimmer" aria-label="Add Swimmer">👤</button>
     </div>
     <div class="fab-child-row">
-      <button class="fab-child" onclick="fabShowDataModal()" title="Load / Download Data">📤</button>
+      <button class="fab-child" onclick="fabShowDataModal()" title="Load / Download Data" aria-label="Load / Download Data">📤</button>
     </div>
     <div class="fab-child-row">
-      <button class="fab-child" onclick="fabShowSettingsModal()" title="Settings">⚙️</button>
+      <button class="fab-child" onclick="fabShowSettingsModal()" title="Settings" aria-label="Settings">⚙️</button>
     </div>
     <div class="fab-child-row">
-      <button class="fab-child" id="fabThemeBtn" onclick="fabToggleTheme()" title="Toggle Theme">🌙</button>
+      <button class="fab-child" id="fabThemeBtn" onclick="fabToggleTheme()" title="Toggle Theme" aria-label="Toggle Theme">🌙</button>
     </div>
   </div>
-  <button class="fab-parent" id="fabParent" onclick="toggleFab()" title="Actions">＋</button>
+  <button class="fab-parent" id="fabParent" onclick="toggleFab()" title="Actions" aria-label="Actions menu" aria-expanded="false">＋</button>
 </div>
 
 <script>
@@ -1387,6 +1421,58 @@ const escAttr = s => String(s)
   .replace(/</g, '&lt;')
   .replace(/>/g, '&gt;');
 
+// Shared keyboard-activation handler for "clickable div" UI patterns (swimmer-card headers,
+// stat cards, Overview chart legend items) that rely on onclick rather than a real <button>
+// and so have no native keyboard-activation behavior of their own. Paired with
+// role="button" tabindex="0" on the element; Enter/Space triggers the same onclick handler
+// already wired on it.
+function kbActivate(event) {
+  if (event.key === 'Enter' || event.key === ' ' || event.key === 'Spacebar') {
+    event.preventDefault();
+    event.currentTarget.click();
+  }
+}
+
+// ── Modal focus management ──────────────────────────────────────
+// Screen-reader/keyboard users previously had no indication a modal opened (no role="dialog"
+// on the overlay, now added in markup) and could tab focus out into the page behind it while
+// it was open. This pairs with that: remembers what had focus before opening (restored on
+// close) and traps Tab/Shift+Tab within the modal while it's open.
+let _modalReturnFocusEl = null;
+function getFocusableIn(modalEl) {
+  return [...modalEl.querySelectorAll(
+    'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+  )].filter(el => el.offsetParent !== null || el === document.activeElement);
+}
+function openModalA11y(id) {
+  const modalEl = document.getElementById(id);
+  if (!modalEl) return;
+  _modalReturnFocusEl = document.activeElement;
+  // Defer to the next tick so the modal's 'open' class (display:flex) has already applied —
+  // otherwise offsetParent-based visibility checks in getFocusableIn() would see everything
+  // as hidden and there'd be nothing to focus yet.
+  setTimeout(() => {
+    const focusable = getFocusableIn(modalEl);
+    if (focusable.length) focusable[0].focus();
+  }, 0);
+}
+function closeModalA11y() {
+  if (_modalReturnFocusEl && typeof _modalReturnFocusEl.focus === 'function') {
+    _modalReturnFocusEl.focus();
+  }
+  _modalReturnFocusEl = null;
+}
+// Called from the shared document keydown listener below whenever a modal is open.
+function trapModalTab(event) {
+  const openModal = document.querySelector('.modal-overlay.open');
+  if (!openModal || event.key !== 'Tab') return;
+  const focusable = getFocusableIn(openModal);
+  if (!focusable.length) return;
+  const first = focusable[0], last = focusable[focusable.length - 1];
+  if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+  else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+}
+
 // ============================================================
 // DATA GLOBALS
 // ============================================================
@@ -1399,10 +1485,80 @@ function parseQTFull(raw) {
   return { meta: d.meta || { title:'', dateFrom:'', dateTo:'' }, times: d.times || [] };
 }
 
+// Validates a raw QT `times` array. Previously applyQTUpload() performed no validation
+// whatsoever on gender/course/event/age/qualify/consider (Open Issue #7), and the GitHub
+// sync path had the same gap. Rendering-side escaping already made this safe from an XSS
+// standpoint; this closes the remaining data-quality gap — e.g. a typo'd event/gender/course
+// value previously just made that row silently invisible to lookupQT() with no indication
+// anything was wrong. Numeric qualify/consider values are coerced from numeric strings
+// (a hand-edited JSON file is a realistic source of "34.5" instead of 34.5) rather than
+// rejected outright, since that's a trivially-recoverable formatting slip, not bad data.
+function sanitiseQTData(rawTimes) {
+  let skipped = 0, coerced = 0;
+  const toNum = v => {
+    if (v == null) return null;
+    if (typeof v === 'number') return isFinite(v) ? v : NaN;
+    if (typeof v === 'string' && /^\d+(\.\d+)?$/.test(v.trim())) { coerced++; return parseFloat(v); }
+    return NaN; // signals invalid — distinguished from null ("not offered"), which is valid
+  };
+  const clean = (Array.isArray(rawTimes) ? rawTimes : []).filter(r => {
+    if (r.gender !== 'Boys' && r.gender !== 'Girls') { skipped++; return false; }
+    if (r.course !== 'Short Course' && r.course !== 'Long Course') { skipped++; return false; }
+    if (!ALL_EVENTS.includes(r.event)) { skipped++; return false; }
+    if (!r.age || typeof r.age !== 'string') { skipped++; return false; }
+    const q = toNum(r.qualify), c = toNum(r.consider);
+    if (isNaN(q) || (q != null && q <= 0)) { skipped++; return false; }
+    if (isNaN(c) || (c != null && c <= 0)) { skipped++; return false; }
+    r.qualify = q; r.consider = c;
+    return true;
+  });
+  if (skipped) console.warn(`Coach Dashboard: ${skipped} QT row(s) skipped due to invalid gender/course/event/age/qualify/consider.`);
+  if (coerced) console.warn(`Coach Dashboard: ${coerced} QT qualify/consider value(s) were numeric strings, converted to numbers.`);
+  return { clean, skipped, coerced };
+}
+
+// One-line human-readable summary of what sanitiseQTData() found, for appending to a
+// success/status message. Empty string when everything was clean.
+function describeSanitiseQTIssues(skipped, coerced) {
+  const parts = [];
+  if (skipped) parts.push(`${skipped} row(s) skipped (invalid gender/course/event/age/time)`);
+  if (coerced) parts.push(`${coerced} value(s) were text and converted to numbers`);
+  return parts.length ? ` ⚠️ ${parts.join('; ')}.` : '';
+}
+
 // Safely read and parse a localStorage key; returns fallback on any error.
 function lsGet(key, fallback) {
   try { const v = localStorage.getItem(key); return v != null ? JSON.parse(v) : fallback; }
   catch (e) { console.warn('Coach Dashboard: corrupt localStorage key "' + key + '" — reset to default.', e); return fallback; }
+}
+
+// Safely write to localStorage; returns true on success, false on failure (quota exceeded,
+// private-browsing storage disabled, etc). Write-side counterpart to lsGet() above — every
+// localStorage.setItem() call in this file was previously unwrapped, so a failure here would
+// throw uncaught and silently abort whatever save flow was mid-way through (e.g. a swimmer
+// added in memory but never actually persisted, with no indication anything went wrong).
+// This only guarantees the coach is TOLD when a save didn't stick — callers that have a
+// dedicated status UI (Manage Data modal, Sync modal) should check the return value and
+// report it there; callers without one fall back to a plain alert() so it's never silent.
+function lsSet(key, value) {
+  try { localStorage.setItem(key, value); return true; }
+  catch (e) {
+    console.warn('Coach Dashboard: failed to save to localStorage key "' + key + '".', e);
+    return false;
+  }
+}
+
+// Some save flows fire very frequently (e.g. an onblur save per QT-editor cell edit) and have
+// no dedicated status banner of their own. Alerting on every single one of those during a
+// broken-storage session (quota full, private browsing) would be an unusable wall of modal
+// popups — so this warns once per page load, then lets subsequent failures fall through to
+// the console.warn already inside lsSet(). Flows that DO have a status banner (Manage Data
+// modal, Sync modal) use that instead of this, since it can show/hide per-attempt.
+let _storageFailureWarned = false;
+function warnStorageFailureOnce() {
+  if (_storageFailureWarned) return;
+  _storageFailureWarned = true;
+  alert('⚠️ Browser storage isn\'t saving changes right now (it may be full, or private browsing may be blocking it). Changes are only kept for this session — download a backup before closing or reloading the page. (This warning will only show once.)');
 }
 
 let SWIMMERS = lsGet('coach_SWIMMERS', []);
@@ -1412,6 +1568,26 @@ try { _cFull = parseQTFull(localStorage.getItem('coach_COUNTY_QT_FULL')   || loc
 catch (e) { console.warn('Coach Dashboard: corrupt county QT data — reset.', e); _cFull = parseQTFull(null); }
 try { _rFull = parseQTFull(localStorage.getItem('coach_REGIONAL_QT_FULL') || localStorage.getItem('coach_REGIONAL_QT')); }
 catch (e) { console.warn('Coach Dashboard: corrupt regional QT data — reset.', e); _rFull = parseQTFull(null); }
+
+// One-time migration: the pre-v2 plain-array format (coach_COUNTY_QT / coach_REGIONAL_QT)
+// was replaced by the {meta,times} wrapped format back in v2, but the OLD keys were only
+// ever read as a fallback, never actually migrated forward or cleaned up (Open Issue #2) —
+// so a device that hadn't opened a newer version since then would keep re-reading stale
+// legacy data on every load, forever. This completes the migration for any such device: if
+// only the legacy key has data, write it into the new key immediately and remove the legacy
+// key — rather than either leaving both readable indefinitely, or risking silent data loss
+// from an outright removal of the fallback read.
+function migrateLegacyQTKey(oldKey, newKey, parsedFull) {
+  try {
+    if (localStorage.getItem(newKey) == null && localStorage.getItem(oldKey) != null) {
+      if (lsSet(newKey, JSON.stringify({ meta: parsedFull.meta, times: parsedFull.times }))) {
+        localStorage.removeItem(oldKey);
+      }
+    }
+  } catch (e) { /* storage unavailable — nothing to safely migrate, leave as-is */ }
+}
+migrateLegacyQTKey('coach_COUNTY_QT', 'coach_COUNTY_QT_FULL', _cFull);
+migrateLegacyQTKey('coach_REGIONAL_QT', 'coach_REGIONAL_QT_FULL', _rFull);
 
 let COUNTY_QT_META   = _cFull.meta;
 let REGIONAL_QT_META = _rFull.meta;
@@ -1808,7 +1984,8 @@ function renderTab(prefix) {
     const filterVal = cls === 'qualified' ? 'Qualified' : cls === 'consideration' ? 'Consideration' : 'Outside';
     const isActive  = statusFilter === filterVal ? ' active-filter' : '';
     const nameList  = [...names].slice(0,5).map(n => escHtml(n)).join(', ') + (names.size > 5 ? ` +${names.size-5} more` : '');
-    return `<div class="stat-card ${cls}${isActive}" onclick="setStatusFilter('${prefix}','${filterVal}')">
+    return `<div class="stat-card ${cls}${isActive}" onclick="setStatusFilter('${prefix}','${filterVal}')"
+      role="button" tabindex="0" aria-pressed="${statusFilter === filterVal}" aria-label="Filter by ${label} status" onkeydown="kbActivate(event)">
       <div class="stat-label">${label}</div>
       <div class="stat-count">${count}</div>
       <div class="stat-names">${nameList || 'None'}</div>
@@ -1891,7 +2068,8 @@ function renderTab(prefix) {
 
     const swId = `${prefix}-sw-${idx}`;
     html += `<div class="swimmer-card${isCollapsed}" id="${swId}">
-      <div class="swimmer-header" onclick="toggleSwimmer('${swId}')">
+      <div class="swimmer-header" onclick="toggleSwimmer('${swId}')"
+        role="button" tabindex="0" aria-expanded="${isCollapsed === ''}" aria-label="${escAttr(sw.name)}, toggle details" onkeydown="kbActivate(event)">
         <div class="swimmer-avatar" style="background:${pal.bg};color:${pal.color}">${escHtml(initials(sw.name))}</div>
         <div>
           <div class="swimmer-name-line"><span class="swimmer-name-text">${escHtml(sw.name)}</span></div>
@@ -1935,13 +2113,19 @@ function renderTab(prefix) {
               const isContinuation = (r.event === prevEvent);
               const topBorder = !isContinuation && prevEvent !== null ? 'border-top:2px solid var(--border);' : '';
               // Event cell: show name on first row, continuation mark on subsequent
+              // escHtml/escAttr here are defense-in-depth, not a fix for an active exploit:
+              // r.event always comes from the fixed ALL_EVENTS constant and r.course is
+              // always 'S'/'L' from buildSwimmerRows' own course loop, never from uploaded
+              // data directly — but every other dynamic value in this file is escaped on
+              // principle, so this stayed inconsistent (and would matter if ALL_EVENTS or
+              // course values were ever sourced dynamically in the future).
               const eventCell = isContinuation
                 ? `<td style="color:var(--text3);padding-left:20px;font-size:0.72rem;${topBorder}">└─</td>`
-                : `<td style="font-weight:600;color:var(--text);${topBorder}">${r.event}</td>`;
+                : `<td style="font-weight:600;color:var(--text);${topBorder}">${escHtml(r.event)}</td>`;
               prevEvent = r.event;
               return `<tr class="${rowCls}">
                 ${eventCell}
-                <td style="${topBorder}"><span class="badge ${r.course}">${r.course === 'S' ? 'SC' : 'LC'}</span></td>
+                <td style="${topBorder}"><span class="badge ${escHtml(r.course)}">${r.course === 'S' ? 'SC' : 'LC'}</span></td>
                 <td style="${topBorder}">${pbStr}</td>
                 <td style="${topBorder}">${pbDate}</td>
                 <td style="${topBorder}">${qtStr}</td>
@@ -1965,6 +2149,18 @@ function renderTab(prefix) {
 
 function renderCounty()   { renderTab('county'); }
 function renderRegional() { renderTab('regional'); }
+
+// Generic debounce utility — the name-search filter previously called renderCounty()/
+// renderRegional() directly on every keystroke (oninput), forcing a full tab re-render each
+// time. Harmless at typical squad sizes, but avoidable churn that could feel janky on a
+// large/long-history squad. Every other call site still calls the un-debounced function
+// directly (filter dropdowns, sync, etc.) since those are discrete actions, not a fast stream.
+function debounce(fn, delay) {
+  let t;
+  return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), delay); };
+}
+const debouncedRenderCounty   = debounce(renderCounty, 150);
+const debouncedRenderRegional = debounce(renderRegional, 150);
 
 // ============================================================
 // OVERVIEW TAB — "coach's morning briefing"
@@ -2077,9 +2273,18 @@ function getHotCutoffDate(days) {
 // stable-sort insertion order) was the effective tiebreaker on tied dates — i.e. it looked
 // alphabetical, because on a shared gala date it basically was. Name is now only the final,
 // rarely-reached tiebreak.
+// Cap on how many raw dated PBs are pulled (across the whole squad) before grouping by
+// swimmer and sorting. Comfortably above what even a large, long-history squad would produce
+// within a typical cutoff window, but it IS a hard cap — a squad with a very large roster and
+// a very wide day-cutoff could in theory have more dated PBs than this, in which case the
+// oldest/lowest-ranked ones within the pool are silently dropped before grouping even happens
+// (distinct from HOT_CARD_CAP below, which only limits how many swimmer CARDS are shown and
+// has an explicit "Show all" escape hatch). Raise this if that ever becomes a real scenario.
+const HOT_RAW_POOL_CAP = 200;
+
 function groupRecentPbsBySwimmer() {
   const cutoffDate = getHotCutoffDate(getHotCutoffDays());
-  const flat = collectRecentPbs(200, cutoffDate);
+  const flat = collectRecentPbs(HOT_RAW_POOL_CAP, cutoffDate);
   const bySwimmer = new Map();
   flat.forEach(e => {
     if (!bySwimmer.has(e.name)) bySwimmer.set(e.name, { name: e.name, entries: [] });
@@ -2117,10 +2322,10 @@ function renderHotList() {
     const strokeAbbr = STROKE_ABBR[stroke] || stroke;
     const strokeColor = STROKE_COLOR[stroke] || 'var(--border)';
     return `
-      <div class="ov-person-entry ov-entry-stat" style="border-left-color:${strokeColor}">
+      <div class="ov-person-entry ov-entry-stat" style="border-left-color:${strokeColor}" ${e.competition ? `title="${escHtml(e.competition)}"` : ''}>
         <div class="ov-entry-stat-meta">
           <span>${escHtml(distance)} <span class="col-full">${escHtml(stroke)}</span><span class="col-abbr">${escHtml(strokeAbbr)}</span></span>
-          <span class="badge ${e.course}">${e.course === 'S' ? 'SC' : 'LC'}</span>
+          <span class="badge ${escHtml(e.course)}">${e.course === 'S' ? 'SC' : 'LC'}</span>
         </div>
         <div class="ov-entry-stat-result">
           <span class="ov-entry-stat-time">${escHtml(e.time)}</span>
@@ -2208,7 +2413,7 @@ function renderBubbleList() {
           <div class="ov-bubble-meta-tab">${escHtml(e.tabLabel)}</div>
           <div class="ov-bubble-meta-event">
             <span>${escHtml(distance)} <span class="col-full">${escHtml(stroke)}</span><span class="col-abbr">${escHtml(strokeAbbr)}</span></span>
-            <span class="badge ${e.course}">${e.course === 'S' ? 'SC' : 'LC'}</span>
+            <span class="badge ${escHtml(e.course)}">${e.course === 'S' ? 'SC' : 'LC'}</span>
           </div>
         </div>
         <div class="ov-entry-stat-result">
@@ -2297,6 +2502,7 @@ function renderCompChart(chartId, title, items) {
     const tLabel = it.tooltipLabel || it.label;
     return `<div class="ov-legend-item${isExcluded ? ' excluded' : ''}"
         onclick="toggleCompChartKey('${escAttr(chartId)}','${escAttr(it.key)}')"
+        role="button" tabindex="0" aria-pressed="${!isExcluded}" onkeydown="kbActivate(event)"
         title="Click to ${isExcluded ? 'show' : 'hide'} ${escHtml(tLabel)}">
       <i style="background:${it.color}"></i>
       <span class="ov-legend-label">${escHtml(it.label)}</span>
@@ -2449,7 +2655,7 @@ function showTab(name, btn) {
 function toggleTheme() {
   document.body.classList.toggle('dark');
   const isDark = document.body.classList.contains('dark');
-  localStorage.setItem('coach_theme', isDark ? 'dark' : 'light');
+  lsSet('coach_theme', isDark ? 'dark' : 'light');
   const btn = document.getElementById('fabThemeBtn');
   if (btn) btn.textContent = isDark ? '☀️' : '🌙';
 }
@@ -2464,10 +2670,12 @@ function showDataModal() {
   closeFab();
   refreshDataModalStatus();
   document.getElementById('dataModal').classList.add('open');
+  openModalA11y('dataModal');
 }
 function hideDataModal() {
   document.getElementById('dataModal').classList.remove('open');
   cancelDataConflict();
+  closeModalA11y();
 }
 
 // Populates the per-card swimmer/QT counts, last-sync timestamps, button enabled-state,
@@ -2539,29 +2747,47 @@ function showAddSwimmerModal() {
   document.getElementById('asPBList').innerHTML = '';
   addPBRow();
   document.getElementById('addSwimmerModal').classList.add('open');
+  openModalA11y('addSwimmerModal');
 }
 function hideAddSwimmerModal() {
   editingSwimmerId = null;
   document.getElementById('addSwimmerModal').classList.remove('open');
+  closeModalA11y();
 }
 
 // ── Shared status / error helpers for the data modal ──────────
+// Toggles the "dock-visible" class (mobile sticky positioning, see CSS) on/off depending on
+// whether any of the three status/error/conflict elements it wraps is actually showing —
+// deliberately NOT just "always sticky", so there's no empty sticky bar with a border/shadow
+// sitting at the bottom of the modal when there's nothing to show.
+function refreshStatusDockVisibility() {
+  const dock = document.getElementById('dataModalStatusDock');
+  if (!dock) return;
+  const anyVisible = ['dataStatus', 'dataError', 'dataConflictBox'].some(id => {
+    const el = document.getElementById(id);
+    return el && el.style.display === 'block';
+  });
+  dock.classList.toggle('dock-visible', anyVisible);
+}
 function setDataStatus(type, msg) {
   const el = document.getElementById('dataStatus');
   if (!el) return;
   el.style.display = 'block';
   el.className = `sync-${type}`;
   el.textContent = msg;
+  refreshStatusDockVisibility();
 }
 function clearDataStatus() {
   const el = document.getElementById('dataStatus');
   if (el) { el.style.display = 'none'; el.textContent = ''; }
+  refreshStatusDockVisibility();
 }
 function setDataError(msg) {
   const el = document.getElementById('dataError');
   if (!el) return;
   if (msg) { el.textContent = msg; el.style.display = 'block'; }
   else     { el.style.display = 'none'; el.textContent = ''; }
+  refreshStatusDockVisibility();
 }
 function readJsonFile(inputEl) {
   return new Promise((resolve, reject) => {
@@ -2577,48 +2803,88 @@ function readJsonFile(inputEl) {
   });
 }
 
-// Validates and sanitises a raw swimmers array exactly as loadDataFiles used to.
+// Validates and sanitises a raw swimmers array. Used by BOTH the manual-upload path and
+// (as of this pass) the Google Sheets sync path — previously sync data went straight to
+// mergeSwimmers() with zero validation, so a malformed dob/gender/time from a broken Sheet
+// row would reach the render layer unchecked.
+// Returns { clean, skipped, datesDropped } rather than just the array, so callers can surface
+// what was silently invalid rather than only logging it to the console.
+//
+// pb.event/pb.course are validated here (not just time) because Hot Right Now's
+// collectRecentPbs() reads sw.pbs directly rather than going through buildSwimmerRows()'s
+// ALL_EVENTS/'S'|'L'-constrained lookup — County/Regional and The Bubble List are safe by
+// construction regardless of what's in the raw PB data, but Hot Right Now previously wasn't,
+// and rendered pb.course completely unescaped as a CSS class name. An uploaded/synced PB with
+// a crafted course string could break out of that attribute. Validating here closes it at the
+// source; the render-time escHtml() added alongside this is defense-in-depth on top of it.
 function sanitiseSwimmersData(rawData) {
   const timeRe = /^(\d{1,2}:)?\d{1,2}\.\d{2}$/;
   const dobRe  = /^\d{4}-\d{2}-\d{2}$/;
-  let skipped = 0;
+  let skipped = 0, datesDropped = 0;
   const clean = (Array.isArray(rawData) ? rawData : []).filter(sw => {
     if (!sw.name || typeof sw.name !== 'string') { skipped++; return false; }
     if (!sw.dob  || !dobRe.test(sw.dob) || isNaN(Date.parse(sw.dob))) { skipped++; return false; }
     if (sw.gender !== 'Boys' && sw.gender !== 'Girls')                 { skipped++; return false; }
     if (Array.isArray(sw.pbs)) {
-      sw.pbs = sw.pbs.filter(pb => pb.time && timeRe.test(String(pb.time)));
+      sw.pbs = sw.pbs
+        .filter(pb => pb.time && timeRe.test(String(pb.time)) && ALL_EVENTS.includes(pb.event) && (pb.course === 'S' || pb.course === 'L'))
+        .map(pb => {
+          // date is optional, so an invalid one doesn't disqualify the whole PB — but left
+          // as-is it renders as "NaN undefined NaN" (fmtDate/fmtDateShort have no guard
+          // against an unparseable string) and can corrupt Hot Right Now's string-based
+          // date sort/cutoff comparison. Dropping just the bad date is equivalent to the
+          // PB never having had one — same as any other undated PB.
+          if (pb.date && (!dobRe.test(pb.date) || isNaN(Date.parse(pb.date)))) {
+            datesDropped++;
+            const { date, ...rest } = pb;
+            return rest;
+          }
+          return pb;
+        });
     } else { sw.pbs = []; }
     return true;
   });
   if (skipped) console.warn(`Coach Dashboard: ${skipped} swimmer record(s) skipped due to missing or invalid required fields.`);
-  return clean;
+  if (datesDropped) console.warn(`Coach Dashboard: ${datesDropped} PB date(s) were invalid and dropped (the PB itself was kept).`);
+  return { clean, skipped, datesDropped };
+}
+
+// One-line human-readable summary of what sanitiseSwimmersData() found, for appending to a
+// success/status message. Empty string when everything was clean.
+function describeSanitiseIssues(skipped, datesDropped) {
+  const parts = [];
+  if (skipped)      parts.push(`${skipped} record(s) skipped (missing/invalid name, dob, or gender)`);
+  if (datesDropped) parts.push(`${datesDropped} PB date(s) invalid and dropped (times kept)`);
+  return parts.length ? ` ⚠️ ${parts.join('; ')}.` : '';
 }
 
 // ── Conflict resolution state — used by both manual swimmer upload and QT upload ──
-let _pendingConflict = null; // { kind: 'swimmers'|'county'|'regional', data: ... }
+let _pendingConflict = null; // { kind: 'swimmers'|'county'|'regional', data: ..., note?: string }
 
 // opts: { merge: bool, mergeOverwrite: bool } — which extra buttons to show beyond Cancel/Replace
-function showDataConflict(kind, data, message, opts) {
+// note: optional extra string (e.g. sanitisation warnings) carried through to the eventual
+// applySwimmersUpload/applyQTUpload call once the coach picks Replace/Merge.
+function showDataConflict(kind, data, message, opts, note) {
   opts = opts || {};
-  _pendingConflict = { kind, data };
+  _pendingConflict = { kind, data, note };
   document.getElementById('dataConflictMsg').textContent = message;
   document.getElementById('dataConflictMergeBtn').style.display          = opts.merge          ? '' : 'none';
   document.getElementById('dataConflictMergeOverwriteBtn').style.display = opts.mergeOverwrite  ? '' : 'none';
   document.getElementById('dataConflictBox').style.display = 'block';
+  refreshStatusDockVisibility();
 }
 function cancelDataConflict() {
   _pendingConflict = null;
   const box = document.getElementById('dataConflictBox');
   if (box) box.style.display = 'none';
-  clearDataStatus();
+  clearDataStatus(); // already calls refreshStatusDockVisibility()
 }
 function resolveDataConflict(mode) {
   if (!_pendingConflict) return;
-  const { kind, data } = _pendingConflict;
+  const { kind, data, note } = _pendingConflict;
   cancelDataConflict();
-  if (kind === 'swimmers') applySwimmersUpload(data, mode);
-  else applyQTUpload(kind, data, mode);
+  if (kind === 'swimmers') applySwimmersUpload(data, mode, note);
+  else applyQTUpload(kind, data, mode, note);
 }
 
 // ── Swimmers: manual upload ────────────────────────────────────
@@ -2626,26 +2892,30 @@ function loadSwimmersFile() {
   setDataError(null); clearDataStatus();
   const input = document.getElementById('fileSwimmers');
   readJsonFile(input).then(rawData => {
-    const clean = sanitiseSwimmersData(rawData);
+    const { clean, skipped, datesDropped } = sanitiseSwimmersData(rawData);
+    const note = describeSanitiseIssues(skipped, datesDropped);
     if (SWIMMERS.length > 0) {
       showDataConflict('swimmers', clean,
         `You already have ${SWIMMERS.length} swimmer(s) loaded. Replace will discard them and load only the file's ${clean.length} swimmer(s). Merge will match by name + date of birth, keeping the faster PB for each event.`,
-        { merge: true });
+        { merge: true }, note);
     } else {
-      applySwimmersUpload(clean, 'replace');
+      applySwimmersUpload(clean, 'replace', note);
     }
   }).catch(err => setDataError('Error: ' + err));
 }
-function applySwimmersUpload(clean, mode) {
+function applySwimmersUpload(clean, mode, note) {
+  note = note || '';
+  let saveOk;
   if (mode === 'merge') {
     const result = mergeSwimmers(clean, 'keep', { sourceIsAuthoritative: false }); // uploaded file is not a full-source snapshot — never drop existing swimmers absent from it
-    localStorage.setItem('coach_SWIMMERS', JSON.stringify(SWIMMERS));
-    setDataStatus('success', `✅ Merged — ${result.added} added, ${result.updated} updated, ${result.kept} local kept.`);
+    saveOk = lsSet('coach_SWIMMERS', JSON.stringify(SWIMMERS));
+    if (saveOk) setDataStatus('success', `✅ Merged — ${result.added} added, ${result.updated} updated, ${result.kept} local kept.${note}`);
   } else {
     SWIMMERS = clean;
-    localStorage.setItem('coach_SWIMMERS', JSON.stringify(SWIMMERS));
-    setDataStatus('success', `✅ Replaced — ${SWIMMERS.length} swimmer(s) loaded.`);
+    saveOk = lsSet('coach_SWIMMERS', JSON.stringify(SWIMMERS));
+    if (saveOk) setDataStatus('success', `✅ Replaced — ${SWIMMERS.length} swimmer(s) loaded.${note}`);
   }
+  if (!saveOk) setDataError('⚠️ Loaded in this session, but could not save to browser storage (it may be full, or private browsing may be blocking it). Download a backup now — this data will be lost on reload.');
   checkLocalStorageSize();
   refreshDataModalStatus();
   renderCounty(); renderRegional(); renderOverview();
@@ -2657,18 +2927,23 @@ function loadQTFile(prefix) {
   const inputId = prefix === 'county' ? 'fileCountyQT' : 'fileRegionalQT';
   const input = document.getElementById(inputId);
   readJsonFile(input).then(rawData => {
+    const parsed = parseQTFull(rawData);
+    const { clean, skipped, coerced } = sanitiseQTData(parsed.times);
+    const cleanedData = { meta: parsed.meta, times: clean };
+    const note = describeSanitiseQTIssues(skipped, coerced);
     const existing = prefix === 'county' ? COUNTY_QT : REGIONAL_QT;
     if (existing.length > 0) {
       const label = prefix === 'county' ? 'County' : 'Regional';
-      showDataConflict(prefix, rawData,
-        `You already have ${existing.length} ${label} QT row(s) loaded. Replace discards them and loads the file's data instead. "Merge — add new only" adds rows for events/ages not already present, leaving existing rows untouched. "Merge — overwrite matching" does the same but also updates the qualify/consider times for any row that already exists.`,
-        { merge: true, mergeOverwrite: true });
+      showDataConflict(prefix, cleanedData,
+        `You already have ${existing.length} ${label} QT row(s) loaded. Replace discards them and loads the file's ${clean.length} valid row(s) instead. "Merge — add new only" adds rows for events/ages not already present, leaving existing rows untouched. "Merge — overwrite matching" does the same but also updates the qualify/consider times for any row that already exists.`,
+        { merge: true, mergeOverwrite: true }, note);
     } else {
-      applyQTUpload(prefix, rawData, 'replace');
+      applyQTUpload(prefix, cleanedData, 'replace', note);
     }
   }).catch(err => setDataError('Error: ' + err));
 }
-function applyQTUpload(prefix, rawData, mode) {
+function applyQTUpload(prefix, rawData, mode, note) {
+  note = note || '';
   const parsed = parseQTFull(rawData);
   const isCounty = prefix === 'county';
   if (mode === 'merge' || mode === 'merge-overwrite') {
@@ -2690,14 +2965,16 @@ function applyQTUpload(prefix, rawData, mode) {
     });
     const merged = Array.from(existingMap.values());
     if (isCounty) { COUNTY_QT = merged; } else { REGIONAL_QT = merged; }
-    saveQTToStorage(prefix);
+    const saveOk = saveQTToStorage(prefix);
     const overwriteNote = mode === 'merge-overwrite' ? `, ${overwritten} overwritten` : (skipped ? `, ${skipped} already present (kept)` : '');
-    setDataStatus('success', `✅ Merged — ${added} new row(s) added${overwriteNote} for ${isCounty ? 'County' : 'Regional'} QT.`);
+    if (saveOk) setDataStatus('success', `✅ Merged — ${added} new row(s) added${overwriteNote} for ${isCounty ? 'County' : 'Regional'} QT.${note}`);
+    else setDataError(`⚠️ Merged in this session, but could not save to browser storage (it may be full, or private browsing may be blocking it). Download a backup now — this data will be lost on reload.`);
   } else {
     if (isCounty) { COUNTY_QT_META = parsed.meta; COUNTY_QT = parsed.times; }
     else { REGIONAL_QT_META = parsed.meta; REGIONAL_QT = parsed.times; }
-    saveQTToStorage(prefix);
-    setDataStatus('success', `✅ Replaced — ${parsed.times.length} row(s) loaded for ${isCounty ? 'County' : 'Regional'} QT.`);
+    const saveOk = saveQTToStorage(prefix);
+    if (saveOk) setDataStatus('success', `✅ Replaced — ${parsed.times.length} row(s) loaded for ${isCounty ? 'County' : 'Regional'} QT.${note}`);
+    else setDataError(`⚠️ Loaded in this session, but could not save to browser storage (it may be full, or private browsing may be blocking it). Download a backup now — this data will be lost on reload.`);
   }
   checkLocalStorageSize();
   refreshDataModalStatus();
@@ -2706,6 +2983,29 @@ function applyQTUpload(prefix, rawData, mode) {
 }
 
 // ── QT: sync from GitHub ────────────────────────────────────────
+// Simple retry helper for transient network failures — Open Issue #6 previously had GitHub
+// QT sync fail hard on the very first hiccup (a dropped connection, a momentary GitHub 5xx),
+// with no retry at all. Retries network-level failures (fetch throwing, e.g. briefly offline)
+// and 5xx server responses with a short linear backoff; deliberately does NOT retry a 4xx
+// (like a 404 for a wrong/renamed file) since that's a configuration problem that waiting
+// won't fix.
+async function fetchWithRetry(url, options, maxAttempts, onRetry) {
+  let lastErr;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const response = await fetch(url, options);
+      if (response.ok || response.status < 500 || attempt === maxAttempts) return response;
+      lastErr = new Error(`HTTP ${response.status}: ${response.statusText}`);
+    } catch (err) {
+      lastErr = err;
+      if (attempt === maxAttempts) throw err;
+    }
+    if (onRetry) onRetry(attempt, maxAttempts);
+    await new Promise(r => setTimeout(r, 600 * attempt)); // short linear backoff
+  }
+  throw lastErr;
+}
+
 async function syncQTFromGitHub(prefix) {
   setDataError(null); clearDataStatus();
   const url = prefix === 'county' ? QT_DATA_URL : SE_QT_DATA_URL;
@@ -2713,22 +3013,27 @@ async function syncQTFromGitHub(prefix) {
   if (!url) { setDataError(`No GitHub URL configured for ${label} QT data.`); return; }
   setDataStatus('info', `⏳ Fetching ${label} QT data from GitHub…`);
   try {
-    const response = await fetch(url, { cache: 'no-store' });
+    const response = await fetchWithRetry(url, { cache: 'no-store' }, 3, (attempt, max) => {
+      setDataStatus('info', `⏳ Fetching ${label} QT data from GitHub… (retry ${attempt}/${max - 1})`);
+    });
     if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
     const rawData = await response.json();
     const parsed  = parseQTFull(rawData);
-    if (prefix === 'county') { COUNTY_QT_META = parsed.meta; COUNTY_QT = parsed.times; }
-    else { REGIONAL_QT_META = parsed.meta; REGIONAL_QT = parsed.times; }
-    saveQTToStorage(prefix);
-    localStorage.setItem(prefix === 'county' ? 'coach_COUNTY_QT_LAST_SYNC' : 'coach_REGIONAL_QT_LAST_SYNC', new Date().toISOString());
+    const { clean, skipped, coerced } = sanitiseQTData(parsed.times);
+    const note = describeSanitiseQTIssues(skipped, coerced);
+    if (prefix === 'county') { COUNTY_QT_META = parsed.meta; COUNTY_QT = clean; }
+    else { REGIONAL_QT_META = parsed.meta; REGIONAL_QT = clean; }
+    const saveOk = saveQTToStorage(prefix);
+    if (saveOk) lsSet(prefix === 'county' ? 'coach_COUNTY_QT_LAST_SYNC' : 'coach_REGIONAL_QT_LAST_SYNC', new Date().toISOString());
     checkLocalStorageSize();
     refreshDataModalStatus();
     updateMetaDisplay(prefix);
     renderCounty(); renderRegional(); renderOverview();
-    setDataStatus('success', `✅ ${label} QT synced — ${parsed.times.length} row(s) loaded from GitHub.`);
+    if (saveOk) setDataStatus('success', `✅ ${label} QT synced — ${clean.length} row(s) loaded from GitHub.${note}`);
+    else setDataError(`⚠️ ${label} QT fetched and loaded in this session, but could not save to browser storage (it may be full, or private browsing may be blocking it). Download a backup now — this data will be lost on reload.`);
   } catch (err) {
     console.error('GitHub QT sync error:', err);
-    setDataError(`Error syncing ${label} QT data: ${err.message}`);
+    setDataError(`Error syncing ${label} QT data after retrying: ${err.message}`);
     clearDataStatus();
   }
 }
@@ -2787,6 +3092,10 @@ function downloadSwimmers() {
 // ============================================================
 // LOCALSTORAGE SIZE GUARD
 // ============================================================
+// One-time-per-session guard so checkLocalStorageSize() (called after nearly every save)
+// doesn't nag on every single edit once the threshold is crossed — same pattern as
+// warnStorageFailureOnce() above, for the same reason.
+let _storageSizeWarned = false;
 function checkLocalStorageSize() {
   try {
     let total = 0;
@@ -2796,6 +3105,10 @@ function checkLocalStorageSize() {
     const kb = Math.round(total / 1024);
     if (total > 4 * 1024 * 1024) {
       console.warn(`Coach Dashboard: localStorage usage is ${kb} KB — approaching browser limit. Consider archiving old data.`);
+      if (!_storageSizeWarned) {
+        _storageSizeWarned = true;
+        alert(`⚠️ Your saved data is using about ${kb} KB, approaching this browser's storage limit (typically 5–10 MB). If you hit the limit, new changes may stop saving without warning. Consider downloading a backup (📤 Manage Data) and removing old Former Swimmers or unused QT rows. (This warning will only show once per visit.)`);
+      }
     }
   } catch (e) { /* storage unavailable */ }
 }
@@ -2869,10 +3182,18 @@ function saveSwimmer() {
   } else {
     SWIMMERS.push({ id: 'sw_' + Date.now(), name, dob, gender, squad, pbs });
   }
-  localStorage.setItem('coach_SWIMMERS', JSON.stringify(SWIMMERS));
+  const saveOk = lsSet('coach_SWIMMERS', JSON.stringify(SWIMMERS));
   checkLocalStorageSize();
-  hideAddSwimmerModal();
   renderCounty(); renderRegional(); renderOverview();
+  if (saveOk) {
+    hideAddSwimmerModal();
+  } else {
+    // Leave the modal open (rather than hiding it) so the coach actually sees this — the
+    // swimmer IS reflected in the UI now (in-memory change already applied above), but
+    // won't survive a reload until storage is working again.
+    errEl.textContent = '⚠️ Saved for this session, but could not be written to browser storage (it may be full, or private browsing may be blocking it). Download a backup now — this will be lost on reload.';
+    errEl.style.display = 'block';
+  }
 }
 
 // ============================================================
@@ -2903,6 +3224,7 @@ function editSwimmer(swId) {
   });
   if (!sw.pbs || sw.pbs.length === 0) addPBRow();
   document.getElementById('addSwimmerModal').classList.add('open');
+  openModalA11y('addSwimmerModal');
 }
 
 function deleteSwimmer(swId) {
@@ -2910,8 +3232,9 @@ function deleteSwimmer(swId) {
   if (!sw) return;
   if (!confirm(`Remove ${sw.name} from the squad? This cannot be undone.`)) return;
   SWIMMERS = SWIMMERS.filter(s => s.id !== swId);
-  localStorage.setItem('coach_SWIMMERS', JSON.stringify(SWIMMERS));
+  const saveOk = lsSet('coach_SWIMMERS', JSON.stringify(SWIMMERS));
   renderCounty(); renderRegional(); renderOverview();
+  if (!saveOk) warnStorageFailureOnce();
 }
 
 
@@ -2920,11 +3243,9 @@ function deleteSwimmer(swId) {
 // ============================================================
 function saveQTToStorage(prefix) {
   if (prefix === 'county') {
-    localStorage.setItem('coach_COUNTY_QT_FULL',
-      JSON.stringify({ meta: COUNTY_QT_META, times: COUNTY_QT }));
+    return lsSet('coach_COUNTY_QT_FULL', JSON.stringify({ meta: COUNTY_QT_META, times: COUNTY_QT }));
   } else {
-    localStorage.setItem('coach_REGIONAL_QT_FULL',
-      JSON.stringify({ meta: REGIONAL_QT_META, times: REGIONAL_QT }));
+    return lsSet('coach_REGIONAL_QT_FULL', JSON.stringify({ meta: REGIONAL_QT_META, times: REGIONAL_QT }));
   }
 }
 
@@ -2957,9 +3278,10 @@ function saveMetaEdit(prefix) {
   };
   if (prefix === 'county') COUNTY_QT_META   = meta;
   else                     REGIONAL_QT_META = meta;
-  saveQTToStorage(prefix);
+  const saveOk = saveQTToStorage(prefix);
   updateMetaDisplay(prefix);
   cancelMetaEdit(prefix);
+  if (!saveOk) warnStorageFailureOnce();
 }
 
 function updateMetaDisplay(prefix) {
@@ -3086,14 +3408,14 @@ function saveQTEdit(prefix, gender, course, event, age, field, value) {
   );
   if (!row) return;
   const trimmed = value.trim();
-  if (!trimmed) { row[field] = null; saveQTToStorage(prefix); return; }
+  if (!trimmed) { row[field] = null; if (!saveQTToStorage(prefix)) warnStorageFailureOnce(); return; }
   if (!/^(\d{1,2}:)?\d{1,2}\.\d{2}$/.test(trimmed)) {
     // Invalid format — restore previous value by re-rendering
     renderQTEditor(prefix); return;
   }
   const sec = timeToSec(trimmed);
   row[field] = isFinite(sec) ? parseFloat(sec.toFixed(2)) : null;
-  saveQTToStorage(prefix);
+  if (!saveQTToStorage(prefix)) warnStorageFailureOnce();
 }
 
 function deleteQTRow(prefix, gender, course, event, age) {
@@ -3106,7 +3428,7 @@ This cannot be undone.`)) return;
     REGIONAL_QT = REGIONAL_QT.filter(r =>
       !(r.gender === gender && r.course === course && r.event === event && r.age === age));
   }
-  saveQTToStorage(prefix);
+  if (!saveQTToStorage(prefix)) warnStorageFailureOnce();
   renderQTEditor(prefix);
 }
 
@@ -3200,7 +3522,7 @@ function saveNewQTRow(prefix, age) {
 
   arr.push({ gender, course, event, age,
     qualify: parseFloat(qualify.toFixed(2)), consider: parseFloat(consider.toFixed(2)) });
-  saveQTToStorage(prefix);
+  if (!saveQTToStorage(prefix)) warnStorageFailureOnce();
   document.getElementById(prefix + 'AddRow').remove();
   renderQTEditor(prefix);
 }
@@ -3226,8 +3548,8 @@ function downloadQTData(prefix) {
 // ============================================================
 let fabOpen = false;
 function toggleFab()  { fabOpen ? closeFab() : openFab(); }
-function openFab()    { fabOpen=true;  document.getElementById('fabBackdrop').classList.add('open'); document.getElementById('fabChildren').classList.add('open'); document.getElementById('fabParent').classList.add('open'); }
-function closeFab()   { fabOpen=false; document.getElementById('fabBackdrop').classList.remove('open'); document.getElementById('fabChildren').classList.remove('open'); document.getElementById('fabParent').classList.remove('open'); }
+function openFab()    { fabOpen=true;  document.getElementById('fabBackdrop').classList.add('open'); document.getElementById('fabChildren').classList.add('open'); document.getElementById('fabParent').classList.add('open'); document.getElementById('fabParent').setAttribute('aria-expanded', 'true'); }
+function closeFab()   { fabOpen=false; document.getElementById('fabBackdrop').classList.remove('open'); document.getElementById('fabChildren').classList.remove('open'); document.getElementById('fabParent').classList.remove('open'); document.getElementById('fabParent').setAttribute('aria-expanded', 'false'); }
 function fabToggleTheme()      { closeFab(); toggleTheme(); }
 function fabShowDataModal()    { closeFab(); showDataModal(); }
 function fabShowAddSwimmer()   { closeFab(); showAddSwimmerModal(); }
@@ -3237,6 +3559,7 @@ function fabShowSettingsModal(){ closeFab(); showSettingsModal(); }
 // KEYBOARD
 // ============================================================
 document.addEventListener('keydown', e => {
+  if (e.key === 'Tab') { trapModalTab(e); return; }
   if (e.key !== 'Escape') return;
   closeFab(); hideDataModal(); hideAddSwimmerModal(); hideSyncModal(); hideSettingsModal();
   editingSwimmerId = null;
@@ -3268,6 +3591,16 @@ window.addEventListener('DOMContentLoaded', () => {
   const savedToken = localStorage.getItem('coach_SYNC_TOKEN') || '';
   const tokenInput = document.getElementById('syncTokenInput');
   if (tokenInput && savedToken) tokenInput.value = savedToken;
+  // Restore Overview coach preferences (day cutoff / bubble margin) if previously set —
+  // everything else about the Overview tab's session state (expand/collapse, show-all/fewer,
+  // chart-legend toggles) is intentionally left session-only, matching collapseAllState's
+  // existing behavior elsewhere; these two are the specific ones flagged worth persisting.
+  const savedCutoff = parseInt(localStorage.getItem('coach_HOT_CUTOFF_DAYS'), 10);
+  const cutoffInput = document.getElementById('hotCutoffDays');
+  if (cutoffInput && isFinite(savedCutoff) && savedCutoff >= 1 && savedCutoff <= 365) cutoffInput.value = savedCutoff;
+  const savedMargin = parseFloat(localStorage.getItem('coach_BUBBLE_MARGIN'));
+  const marginInput = document.getElementById('bubbleMargin');
+  if (marginInput && isFinite(savedMargin) && savedMargin >= 0.1 && savedMargin <= 20) marginInput.value = savedMargin;
   // Render Overview on load (it's the default active tab); County/Regional/editors
   // render lazily on first switch to each, same as before.
   updateMetaDisplay('county');
@@ -3309,10 +3642,12 @@ function showSyncModal() {
   const lastSyncEl = document.getElementById('syncLastTime');
   if (lastSyncEl) lastSyncEl.textContent = fmtDateTime(localStorage.getItem('coach_SHEETS_LAST_SYNC'));
   document.getElementById('syncModal').classList.add('open');
+  openModalA11y('syncModal');
 }
 function hideSyncModal() {
   if (_syncCloseTimer) { clearInterval(_syncCloseTimer); _syncCloseTimer = null; }
   document.getElementById('syncModal').classList.remove('open');
+  closeModalA11y();
 }
 function toggleTokenVisibility() {
   const input = document.getElementById('syncTokenInput');
@@ -3326,9 +3661,11 @@ function showSettingsModal() {
   if (urlInput)   urlInput.value   = localStorage.getItem('coach_SYNC_URL')   || SHEETS_SYNC_URL || '';
   if (tokenInput) tokenInput.value = localStorage.getItem('coach_SYNC_TOKEN') || '';
   document.getElementById('settingsModal').classList.add('open');
+  openModalA11y('settingsModal');
 }
 function hideSettingsModal() {
   document.getElementById('settingsModal').classList.remove('open');
+  closeModalA11y();
 }
 function toggleSettingsTokenVisibility() {
   const input = document.getElementById('settingsToken');
@@ -3337,13 +3674,15 @@ function toggleSettingsTokenVisibility() {
 function saveSettings() {
   const url   = (document.getElementById('settingsSyncUrl')?.value  || '').trim();
   const token = (document.getElementById('settingsToken')?.value    || '').trim();
-  if (url)   localStorage.setItem('coach_SYNC_URL',   url);
+  let saveOk = true;
+  if (url)   saveOk = lsSet('coach_SYNC_URL', url) && saveOk;
   else       localStorage.removeItem('coach_SYNC_URL');
-  if (token) localStorage.setItem('coach_SYNC_TOKEN', token);
+  if (token) saveOk = lsSet('coach_SYNC_TOKEN', token) && saveOk;
   else       localStorage.removeItem('coach_SYNC_TOKEN');
   hideSettingsModal();
   const syncTokenInput = document.getElementById('syncTokenInput');
   if (syncTokenInput && token) syncTokenInput.value = token;
+  if (!saveOk) warnStorageFailureOnce();
 }
 
 // ── Main sync function ───────────────────────────────────────
@@ -3356,7 +3695,7 @@ async function startSync() {
       return;
     }
     syncUrl = inlineUrl;
-    localStorage.setItem('coach_SYNC_URL', syncUrl);
+    lsSet('coach_SYNC_URL', syncUrl);
     const urlWarn = document.getElementById('syncUrlWarning');
     const urlRow  = document.getElementById('syncUrlRow');
     if (urlWarn) urlWarn.style.display = 'none';
@@ -3367,7 +3706,7 @@ async function startSync() {
     setSyncStatus('error', '⚠️ Please enter your sync token.');
     return;
   }
-  localStorage.setItem('coach_SYNC_TOKEN', token);
+  lsSet('coach_SYNC_TOKEN', token);
 
   const btn     = document.getElementById('syncBtn');
   const spinner = document.getElementById('syncSpinner');
@@ -3385,10 +3724,17 @@ async function startSync() {
     if (data.error) throw new Error(data.message || 'Apps Script returned an error.');
 
     // Unwrap payload wrapper {version, generated, count, swimmers:[]}
-    const sheetSwimmers = Array.isArray(data) ? data
+    const sheetSwimmersRaw = Array.isArray(data) ? data
                         : (data.swimmers && Array.isArray(data.swimmers)) ? data.swimmers
                         : null;
-    if (!sheetSwimmers) throw new Error('Unexpected data format from Apps Script.');
+    if (!sheetSwimmersRaw) throw new Error('Unexpected data format from Apps Script.');
+
+    // Previously this went straight to mergeSwimmers() with zero validation — the manual
+    // upload path was the only one sanitised. Apps Script's own formatDob()/fmtDate() already
+    // produce the same YYYY-MM-DD shape this sanitiser expects, so this is a safety net for a
+    // broken Sheet row, not a format mismatch.
+    const { clean: sheetSwimmers, skipped, datesDropped } = sanitiseSwimmersData(sheetSwimmersRaw);
+    const sanitiseNote = describeSanitiseIssues(skipped, datesDropped);
 
     // Merge into SWIMMERS using the correct function (updates SWIMMERS in place)
     // sourceIsAuthoritative: true — this IS a complete sheet snapshot, so previously-
@@ -3397,12 +3743,26 @@ async function startSync() {
     const result    = mergeSwimmers(sheetSwimmers, mergeMode, { sourceIsAuthoritative: true });
 
     // Persist to the correct localStorage key
-    localStorage.setItem('coach_SWIMMERS', JSON.stringify(SWIMMERS));
-    localStorage.setItem('coach_SHEETS_LAST_SYNC', new Date().toISOString());
+    const swSaveOk = lsSet('coach_SWIMMERS', JSON.stringify(SWIMMERS));
+    const tsSaveOk = swSaveOk && lsSet('coach_SHEETS_LAST_SYNC', new Date().toISOString());
     checkLocalStorageSize();
 
     const lastSyncEl = document.getElementById('syncLastTime');
     if (lastSyncEl) lastSyncEl.textContent = fmtDateTime(new Date().toISOString());
+
+    // Re-render in place regardless of save outcome — the merge already happened in memory
+    // above, so the coach should see the result either way, even if it didn't persist.
+    renderCounty();
+    renderRegional();
+    renderOverview();
+    refreshDataModalStatus();
+
+    if (!swSaveOk || !tsSaveOk) {
+      // Leave the modal open (skip auto-close) so this doesn't get missed.
+      // (btn/spinner reset is handled by the existing finally block below on any return path.)
+      setSyncStatus('error', `⚠️ ${sheetSwimmers.length} swimmer(s) synced for this session, but could not be saved to browser storage (it may be full, or private browsing may be blocking it). Download a backup now — this will be lost on reload.`);
+      return;
+    }
 
     // Build contextual success message
     const noQT = COUNTY_QT.length === 0 && REGIONAL_QT.length === 0;
@@ -3415,14 +3775,8 @@ async function startSync() {
       (result.kept   ? `, ${result.kept} local kept`    : '') +
       (result.hidden ? `, ${result.hidden} hidden`       : '') +
       (result.removed? `, ${result.removed} removed`    : '') +
-      `.${qtNote}`
+      `.${qtNote}${sanitiseNote}`
     );
-
-    // Re-render in place — no page reload needed
-    renderCounty();
-    renderRegional();
-    renderOverview();
-    refreshDataModalStatus();
 
     // Auto-close after 2.5 s on success (with countdown in close button)
     const closeBtn = document.querySelector('#syncModal .modal-close');
