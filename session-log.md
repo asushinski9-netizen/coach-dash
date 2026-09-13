@@ -51,7 +51,7 @@ Continuation session — a sequence of real bugs found via direct user testing/r
 
 ---
 
-## v2.5 — July 2026 (this session) — Overview tab
+## v2.5 — July 2026 — Overview tab
 
 Headline feature: a new **🌅 Overview** tab — a squad-wide "coach's morning briefing" — built from scratch, then refined across many rounds of user feedback (mostly visual/UX polish, one real production bug found and fixed along the way). Now the default tab on page load.
 
@@ -94,7 +94,7 @@ All of the above was verified with a dedicated jsdom test harness (`test_overvie
 
 ---
 
-## v2.6 — July 2026 (this session) — Codebase review, security/a11y hardening, mobile fixes
+## v2.6 — July 2026 — Codebase review, security/a11y hardening, mobile fixes
 
 A two-part session: two direct mobile bug reports handled first, then a full deliberate codebase review at the user's request, with everything it surfaced rolled out in the same session, plus one more mobile UX fix in a final follow-up turn.
 
@@ -128,17 +128,50 @@ Two Apps Script hardening changes (token comparison, `setToken()` guard) came ou
 
 ---
 
-## Files — current state (v2.6)
+## v2.7 — August 2026 — Two more mobile fixes, and the v2.6 "fix" that wasn't quite the root cause
+
+A short, focused follow-up session: two mobile bugs reported directly with screenshots, both traced past their surface symptom to a real root cause rather than patched at the point they were noticed.
+
+### Bug 1 — Gender pill height mismatch, again
+
+The exact same visual symptom v2.6 "fixed" (♀/♂ pill visibly taller than the adjacent squad badge) reappeared. On investigation, the v2.6 fix — giving both pills a shared fixed `line-height: 15px` — addressed the wrong layer. `line-height` only constrains the line *box*; it doesn't stop the glyph's own rendered ink from visually exceeding that box, which mobile platforms can still do for these particular symbol characters even with identical CSS on both elements. Two independent fixes this time, either sufficient alone but both applied as belt-and-braces:
+
+1. **CSS:** `.squad-badge` and `.gender-pill-mobile` now both use an explicit fixed `height: 19px` with `display: inline-flex; align-items: center; justify-content: center` (replacing the line-height-based approach entirely), so the rendered box height is fixed and can't drift regardless of glyph metrics. The mobile display-toggle rule also changed from `inline-block` to `inline-flex`, since `inline-block` would have dropped the centering on mobile specifically — the one place the pill actually renders.
+2. **Markup:** the ♂/♀ HTML entities now carry the Unicode text-presentation variation selector (U+FE0E) appended directly after them — `&#9794;&#xFE0E;` / `&#9792;&#xFE0E;` — which explicitly requests the plain monochrome text glyph rather than any colour/emoji presentation a platform might otherwise substitute for these characters.
+
+Verified with a jsdom probe reading `getComputedStyle` on both classes directly (confirms identical `19px` height and matching `align-items`/`justify-content`), plus a source-string check confirming the U+FE0E selector is actually emitted in the real render path, not just the probe's synthetic test element.
+
+### Bug 2 — Manage Data modal status message overlapping Close / Clear All Data
+
+On mobile, a status message (e.g. "✅ Merged — 0 added, 65 updated") visually overlapped the Close and Clear All Data buttons beneath it, partially obscuring both. Root cause: v2.6's mobile sticky-dock CSS for this status area used `margin-bottom: -20px` to let it bleed flush to the modal's bottom edge — a fix that implicitly assumed the dock was the *last* element in the modal. It wasn't: the Clear All Data / Close button row sat after it in the actual markup, so the negative margin pulled that row up underneath the dock's own painted area instead.
+
+**Fix:** reordered the modal's markup so the Clear All Data / Close button row comes *before* the status dock, making the dock genuinely the last child of the modal box. No CSS changed for this fix — purely a DOM-order correction, so the sticky-bottom behavior that was already correctly implemented in v2.6 now has nothing left below it to cover.
+
+Verified with a jsdom probe asserting `modalBox.lastElementChild === statusDock` and that the button row precedes the dock in document order (`compareDocumentPosition`).
+
+### Process note
+
+Both fixes were verified against the *actual* `index.html` markup/CSS (not just described in prose) via a small dedicated jsdom probe (`probe_fixes.js`, not part of the permanent `test_overview.js` suite — written to prove these two specific properties, matching the project's established "write a targeted probe for the property you actually care about" convention from v2.6). Full script block re-checked with `node --check` after each edit. Since reconstructing the file for local testing required temporarily stubbing the embedded base64 logo, the real logo was restored and re-verified (probe re-run, all checks still passing) before the file was handed back — a reminder for any future session doing the same thing: **never ship a locally-reconstructed copy without confirming the real logo/binary assets made it back in.**
+
+`index.html`'s `<title>` tag bumped to v2.7.
+
+### What did NOT happen this session
+
+No feature work. A separate, parallel planning conversation (not this session) produced a detailed plan for importing official Swim England PB reports and, later in that same conversation, an early/undesigned ask about PB progression history — see `se-pb-import-and-history-plan.md` for the full carried-forward plan. **Nothing from that plan has been implemented** — v2.7 is mobile-fixes-only. That plan is queued as the leading candidate for v2.8.
+
+---
+
+## Files — current state (v2.7)
 
 | File | Version | Description |
 |---|---|---|
-| `index.html` | v2.6 | Main dashboard — ~3,910 lines |
-| `apps_script_v2.2.2.gs` | v2.2.2 | Google Apps Script — token-check + `setToken()` hardening this session |
-| `test_overview.js` | v2.5 | jsdom dev-time test harness for the Overview tab (not shipped) — ~430 lines, unchanged this session, still passes in full |
-| `project-brief.md` | v2.6 | Project overview and goals |
-| `architecture.md` | v2.6 | Code structure and data flow |
-| `data-schema.md` | v2.6 | All JSON schemas |
-| `known-bugs-and-fixes.md` | v2.6 | Bug log |
+| `index.html` | v2.7 | Main dashboard — ~3,940 lines |
+| `apps_script_v2.2.2.gs` | v2.2.2 | Google Apps Script — unchanged since v2.6 |
+| `test_overview.js` | v2.5 | jsdom dev-time test harness for the Overview tab (not shipped) — unchanged this session; the v2.7 fixes were verified with a separate one-off probe instead, since neither touches anything this suite already asserts on |
+| `project-brief.md` | v2.7 | Project overview and goals |
+| `architecture.md` | v2.7 | Code structure and data flow |
+| `data-schema.md` | v2.7 | All JSON schemas, plus a new "planned, not yet implemented" section for the SE import work |
+| `known-bugs-and-fixes.md` | v2.7 | Bug log |
 | `session-log.md` | this file | Full session history |
-| `coach_dashboard_handover.md` | v2.6 | Executive handover, written for a fresh chat session |
-
+| `se-pb-import-and-history-plan.md` | new | Carried-forward plan from a separate planning conversation — approved by the coach, not yet built. Leading candidate for v2.8 |
+| `coach_dashboard_handover.md` | v2.7 → v2.8 | Executive handover, written for a fresh session starting v2.8 |

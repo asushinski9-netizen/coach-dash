@@ -1,6 +1,6 @@
-# Coach Dashboard — Data Schemas (v2.6)
+# Coach Dashboard — Data Schemas (v2.7)
 
-**No stored-data SHAPE changes in v2.6** — every field below is unchanged from v2.5. What changed is which fields are *validated* and on which paths: manual upload and Google Sheets sync now both run through the same validation for swimmers, and QT data (manual upload AND GitHub sync) is validated for the first time at all. See the validation subsections below and `known-bugs-and-fixes.md`'s "Fixed in v2.6" section for the full list.
+**No stored-data SHAPE changes in v2.7.** This was a two-bug mobile CSS/DOM-order fix session — every field below is unchanged from v2.6. A future session (the leading candidate is "v2.8") is expected to add two new fields as part of the SE PB report import work; those are documented separately in **Section 9, below, clearly marked as planned and NOT YET IMPLEMENTED** — do not treat anything in that section as present in the current file.
 
 ---
 
@@ -58,15 +58,17 @@
 
 | Field | Type | Required | Values / Notes |
 |---|---|---|---|
-| `event` | string | yes | Must match an entry in `ALL_EVENTS` — **v2.6: now enforced by the sanitiser** (previously only `time` was validated; a PB with an invalid `event` is now dropped, not silently carried through unrendered on some tabs and rendered-unsafely on others). Split into `{distance, stroke}` by the Overview tab's `splitEventDistance()` for its compact entry rows and mobile stroke abbreviations |
-| `course` | string | yes | `"S"` = Short Course 25m · `"L"` = Long Course 50m. **v2.6: now enforced by the sanitiser** — this was the actual field involved in the v2.6 stored-XSS finding (see `known-bugs-and-fixes.md`), since Hot Right Now rendered it unescaped and unvalidated |
+| `event` | string | yes | Must match an entry in `ALL_EVENTS` — enforced by the sanitiser; a PB with an invalid `event` is dropped, not silently carried through. Split into `{distance, stroke}` by the Overview tab's `splitEventDistance()` for its compact entry rows and mobile stroke abbreviations |
+| `course` | string | yes | `"S"` = Short Course 25m · `"L"` = Long Course 50m. Enforced by the sanitiser — this was the field involved in the v2.6 stored-XSS finding (see `known-bugs-and-fixes.md`), since Hot Right Now rendered it unescaped and unvalidated |
 | `time` | string | yes | `"mm:ss.hh"` or `"ss.hh"` |
-| `date` | string | no | ISO 8601 `YYYY-MM-DD`. PBs with no `date` are excluded from the Overview tab's Hot Right Now feed (undated entries can't be placed in a chronological list). **v2.6:** an invalid (present but malformed) date is now dropped — the PB itself is kept, same as any other undated PB — rather than rendering as "NaN undefined NaN" or corrupting Hot Right Now's string-based date sort/cutoff |
-| `competition` | string | no | Name of meet where PB was set. **v2.6:** now actually displayed, as a tooltip on Hot Right Now entries (previously collected into the data model but never shown anywhere) |
+| `date` | string | no | ISO 8601 `YYYY-MM-DD`. PBs with no `date` are excluded from the Overview tab's Hot Right Now feed (undated entries can't be placed in a chronological list). An invalid (present but malformed) date is dropped — the PB itself is kept, same as any other undated PB — rather than rendering as "NaN undefined NaN" or corrupting Hot Right Now's string-based date sort/cutoff |
+| `competition` | string | no | Name of meet where PB was set. Displayed as a tooltip on Hot Right Now entries |
 
 ### Manual upload AND sync validation (`sanitiseSwimmersData`)
 
-**v2.6: this function is now used on BOTH paths.** Previously only manual upload ran through it — Sheets-synced data went straight to `mergeSwimmers()` unvalidated (a real gap, since Apps Script's own `formatDob()`/Results-tab date formatting already produce the exact `YYYY-MM-DD` shape this sanitiser expects, so there was no format-mismatch reason for the asymmetry). Validates `name`, `dob`, `gender` (drops the whole swimmer record if any is missing/invalid), and per-PB `time`/`event`/`course` (drops just that PB if invalid) and `date` (drops just the date, keeps the PB). Returns `{ clean, skipped, datesDropped }` (previously returned only the array) so callers can surface what was silently invalid in their status message rather than only logging it to the console. Does not validate/regenerate `id` or normalise an unrecognised `squad` value (Open Issue #5).
+Used on **both** the manual-upload path and the Google Sheets sync path (previously sync data went straight to `mergeSwimmers()` unvalidated — a real gap closed in v2.6, since Apps Script's own `formatDob()`/Results-tab date formatting already produce the exact `YYYY-MM-DD` shape this sanitiser expects). Validates `name`, `dob`, `gender` (drops the whole swimmer record if any is missing/invalid), and per-PB `time`/`event`/`course` (drops just that PB if invalid) and `date` (drops just the date, keeps the PB). Returns `{ clean, skipped, datesDropped }` so callers can surface what was silently invalid in their status message rather than only logging it to the console. Does not validate/regenerate `id` or normalise an unrecognised `squad` value (Open Issue #5).
+
+**Any future PB-writing path (the planned SE import — see Section 9) must run through this same sanitiser, or an equivalent enforcing the same constraints, before writing into `sw.pbs`.** This isn't optional hardening — it's the property that keeps Hot Right Now safe by construction against every current entry point.
 
 ---
 
@@ -78,16 +80,16 @@ Unchanged shape — `{meta: {title, dateFrom, dateTo}, times: [...]}`, legacy pl
 
 | Field | Type | Values / Notes |
 |---|---|---|
-| `gender` | string | `"Boys"` or `"Girls"` — **v2.6: now validated** |
-| `course` | string | `"Short Course"` or `"Long Course"` — **v2.6: now validated** |
-| `event` | string | Must match `ALL_EVENTS` — **v2.6: now validated** |
-| `age` | string | County: `"10+11"` `"12"`–`"16"` `"17+"` · Regional: `"11/12"` `"13"`–`"17"` `"18+"`. **v2.6: checked for being a non-empty string**, not yet checked against the actual set of valid bracket strings per championship (Open Issue #5) |
-| `qualify` | number\|null | Qualifying time in seconds. `null` = not offered. **v2.6: now validated** — must be `null` or a positive finite number; a numeric-*string* value (e.g. `"34.5"` from a hand-edited file) is coerced to a number rather than rejected |
-| `consider` | number\|null | Consideration time in seconds. `null` = not offered. Same v2.6 validation/coercion as `qualify` |
+| `gender` | string | `"Boys"` or `"Girls"` — validated |
+| `course` | string | `"Short Course"` or `"Long Course"` — validated |
+| `event` | string | Must match `ALL_EVENTS` — validated |
+| `age` | string | County: `"10+11"` `"12"`–`"16"` `"17+"` · Regional: `"11/12"` `"13"`–`"17"` `"18+"`. Checked for being a non-empty string, not yet checked against the actual set of valid bracket strings per championship (Open Issue #5) |
+| `qualify` | number\|null | Qualifying time in seconds. `null` = not offered. Validated — must be `null` or a positive finite number; a numeric-*string* value (e.g. `"34.5"` from a hand-edited file) is coerced to a number rather than rejected |
+| `consider` | number\|null | Consideration time in seconds. `null` = not offered. Same validation/coercion as `qualify` |
 
 ### Manual upload AND GitHub sync validation (`sanitiseQTData`)
 
-**New in v2.6** (closes the long-standing Open Issue #7) — previously `applyQTUpload()` performed zero validation on any field, and the GitHub sync path had the same gap. Now both paths run every row through `sanitiseQTData()`: invalid `gender`/`course`/`event`/`age` drops the row entirely; invalid (non-numeric, non-null, non-positive) `qualify`/`consider` also drops the row, except a numeric string is coerced rather than treated as invalid. Returns `{ clean, skipped, coerced }`, surfaced in the upload/sync status message via `describeSanitiseQTIssues()`.
+Both the manual-upload and GitHub-sync paths run every row through `sanitiseQTData()`: invalid `gender`/`course`/`event`/`age` drops the row entirely; invalid (non-numeric, non-null, non-positive) `qualify`/`consider` also drops the row, except a numeric string is coerced rather than treated as invalid. Returns `{ clean, skipped, coerced }`, surfaced in the upload/sync status message via `describeSanitiseQTIssues()`.
 
 ### GitHub sync source
 
@@ -96,7 +98,7 @@ https://raw.githubusercontent.com/asushinski9-netizen/coach-dash/main/county_qt.
 https://raw.githubusercontent.com/asushinski9-netizen/coach-dash/main/regional_qt.json
 ```
 
-**v2.6:** fetches now retry transient failures (network error, HTTP 5xx) with a short linear backoff (`fetchWithRetry()`, up to 3 attempts total) before surfacing an error — a genuine 4xx (e.g. a renamed/missing file) still fails immediately, since retrying wouldn't help. See `known-bugs-and-fixes.md` Open Issue #4 for what's still not covered (a longer/queued offline state).
+Fetches retry transient failures (network error, HTTP 5xx) with a short linear backoff (`fetchWithRetry()`, up to 3 attempts total) before surfacing an error — a genuine 4xx (e.g. a renamed/missing file) still fails immediately. See `known-bugs-and-fixes.md` Open Issue #4 for what's still not covered (a longer/queued offline state).
 
 ---
 
@@ -110,7 +112,7 @@ https://raw.githubusercontent.com/asushinski9-netizen/coach-dash/main/regional_q
 100 IM    200 IM     400 IM
 ```
 
-**v2.5 addition (display-only, not a schema change):** `splitEventDistance(event)` splits any of the above into `{distance, stroke}` (e.g. `"50 Free"` → `{distance: "50", stroke: "Free"}`), and `STROKE_ABBR`/`STROKE_COLOR` map the stroke to a mobile abbreviation (`FR`/`BK`/`BR`/`FLY`/`IM`) and an accent color respectively. These are presentation-layer constants in `index.html`, not part of any stored data shape.
+`splitEventDistance(event)` splits any of the above into `{distance, stroke}` (e.g. `"50 Free"` → `{distance: "50", stroke: "Free"}`), and `STROKE_ABBR`/`STROKE_COLOR` map the stroke to a mobile abbreviation (`FR`/`BK`/`BR`/`FLY`/`IM`) and an accent color respectively. These are presentation-layer constants in `index.html`, not part of any stored data shape.
 
 ---
 
@@ -182,26 +184,24 @@ Formula: `index = 6 + (distance/50 × 2) − 1`
 }
 ```
 
-Fetched by `startSync()` as `GET ${syncUrl}?token=${token}` — token is a URL query parameter, not a header (Open Issue #1, still unresolved as of v2.6). **v2.6:** the Apps Script's own token check (`doGet()`) now uses a constant-time-ish `safeCompare()` instead of a plain `!==` (closes a theoretical timing side-channel), and its `setToken()` setup helper now refuses to overwrite an already-configured token unless called explicitly as `setToken(true)`. Neither change affects the payload shape or the query-param transport itself. File renamed `apps_script_v2.2.2.gs`.
+Fetched by `startSync()` as `GET ${syncUrl}?token=${token}` — token is a URL query parameter, not a header (Open Issue #1, still unresolved). The Apps Script's own token check (`doGet()`) uses a constant-time-ish `safeCompare()` instead of a plain `!==`, and its `setToken()` setup helper refuses to overwrite an already-configured token unless called explicitly as `setToken(true)`. Neither affects the payload shape or the query-param transport itself.
 
 ---
 
 ## 6. localStorage Key Map
 
-The Overview tab's day-cutoff and margin% are now persisted (**new in v2.6** — `coach_HOT_CUTOFF_DAYS` / `coach_BUBBLE_MARGIN`, see table below). Everything else about the Overview tab's session state (chart-toggle exclusions, per-card expand/collapse, show-all/fewer) remains intentionally session-only, unchanged — see `known-bugs-and-fixes.md` Open Issue #8 in the v2.5 log (now partially addressed) for the original reasoning.
-
 | Key | Format | Written by | Notes |
 |---|---|---|---|
-| `coach_SWIMMERS` | JSON array | startSync, applySwimmersUpload, saveSwimmer, deleteSwimmer, clearData | User-authoritative. **v2.6:** every write now goes through `lsSet()` and checks the result — see `architecture.md` |
+| `coach_SWIMMERS` | JSON array | startSync, applySwimmersUpload, saveSwimmer, deleteSwimmer, clearData | User-authoritative. Every write goes through `lsSet()` and checks the result — see `architecture.md` |
 | `coach_COUNTY_QT_FULL` | `{meta,times}` JSON | saveQTToStorage | |
 | `coach_REGIONAL_QT_FULL` | `{meta,times}` JSON | saveQTToStorage | |
-| `coach_COUNTY_QT` / `coach_REGIONAL_QT` | Plain array | *(legacy)* | **v2.6:** no longer just a permanent fallback read — `migrateLegacyQTKey()` now writes the data forward into the new key and deletes the legacy key on next load, if only the legacy key had data (Open Issue #2 from earlier logs, now resolved) |
+| `coach_COUNTY_QT` / `coach_REGIONAL_QT` | Plain array | *(legacy)* | No longer just a permanent fallback read — `migrateLegacyQTKey()` writes the data forward into the new key and deletes the legacy key on next load, if only the legacy key had data |
 | `coach_theme` | `'light'`/`'dark'` | toggleTheme | |
 | `coach_SYNC_URL` / `coach_SYNC_TOKEN` | string | saveSettings, startSync | Shared by all coaches |
 | `coach_SHEETS_LAST_SYNC` | ISO timestamp | startSync | |
 | `coach_COUNTY_QT_LAST_SYNC` / `coach_REGIONAL_QT_LAST_SYNC` | ISO timestamp | syncQTFromGitHub | |
-| `coach_HOT_CUTOFF_DAYS` | string (integer) | Hot Right Now's day-cutoff input `onchange` | **New in v2.6.** Restored on page load if within the input's valid range (1–365); Overview's other session state stays ephemeral |
-| `coach_BUBBLE_MARGIN` | string (float) | Bubble List's margin% input `onchange` | **New in v2.6.** Restored on page load if within the input's valid range (0.1–20) |
+| `coach_HOT_CUTOFF_DAYS` | string (integer) | Hot Right Now's day-cutoff input `onchange` | Restored on page load if within the input's valid range (1–365); Overview's other session state stays ephemeral |
+| `coach_BUBBLE_MARGIN` | string (float) | Bubble List's margin% input `onchange` | Restored on page load if within the input's valid range (0.1–20) |
 
 ---
 
@@ -214,6 +214,8 @@ The Overview tab's day-cutoff and margin% are now persisted (**new in v2.6** —
 | Sheet (`course` field) | `"SC"` | `"LC"` |
 | UI badge | `SC` | `LC` |
 
+**Planned SE report import (see Section 9) already uses this exact `S`/`L` convention in its raw source data** (`33.25S`, `42.02L` suffix format) — a genuine point in its favour, since no course-code translation layer will be needed for that field specifically.
+
 ---
 
 ## 8. Time Format Convention
@@ -224,8 +226,46 @@ The Overview tab's day-cutoff and margin% are now persisted (**new in v2.6** —
 | QT times (JSON) | Float seconds |
 | QT editor inputs | `"mm:ss.hh"` or `"ss.hh"` |
 | Sync/last-updated timestamps (UI) | `"DD/MM/YYYY, HH:MM"` 24hr, via `fmtDateTime()` |
-| Overview tab dates (v2.5) | `"D MMM"` (no year) via `fmtDateShort()` — used only where space is tight (Hot Right Now's compact entry rows); every other date display in the app still uses the full `fmtDate()` |
+| Overview tab dates | `"D MMM"` (no year) via `fmtDateShort()` — used only where space is tight (Hot Right Now's compact entry rows); every other date display in the app still uses the full `fmtDate()` |
 | Sheet Results tab cumulative | `"mm:ss.hh"` string |
 | Sheet Results tab splits | Float seconds |
 
-Conversion functions: `timeToSec("1:22.80")` → `82.80` · `secToTime(82.80)` → `"1:22.80"` · `fmtDate(iso)` → `"15 Nov 2025"` · `fmtDateShort(iso)` → `"15 Nov"` (v2.5) · `fmtDateTime(iso)` → `"01/07/2026, 12:43"`
+Conversion functions: `timeToSec("1:22.80")` → `82.80` · `secToTime(82.80)` → `"1:22.80"` · `fmtDate(iso)` → `"15 Nov 2025"` · `fmtDateShort(iso)` → `"15 Nov"` · `fmtDateTime(iso)` → `"01/07/2026, 12:43"`
+
+---
+
+## 9. PLANNED, NOT YET IMPLEMENTED — SE PB Import & PB History
+
+**Status: coach has approved building the SE PB report upload feature described below. No code exists for any of this yet.** Full detail, reasoning, and open items live in `se-pb-import-and-history-plan.md` — this section is a schema-focused summary only, kept here so anyone reading the live schema doc sees what's coming without needing to open the separate plan file. Treat every field below as **proposed**, not current, until a session actually implements it and this section is promoted into Sections 1–2 above (and this section is deleted).
+
+### 9.1 New swimmer field — `SE#`
+
+```json
+{ "...": "...", "se": "1745801" }
+```
+
+- Proposed field name: `se` (string). Primary match key for the SE PB report import, once a swimmer has one on record.
+- **Never created by the SE import itself** — only ever backfilled onto an existing swimmer record after a successful name+DOB match (the same normalisation the existing Sheets sync already does for its own matching). A report row with no existing SE# match and no name/DOB match does not create a swimmer or an SE#; it's skipped and surfaced to the coach.
+- Not present in the Google Sheet payload today, and no plan to add it there — this is specific to the SE report import path.
+
+### 9.2 New PB-entry field — `source`
+
+```json
+{ "event": "50 Free", "course": "S", "time": "33.25", "date": "2026-07-11", "source": "gala" }
+```
+
+- Proposed values: `"gala"` (from Google Sheets sync — today's only PB source, implicitly this value for everything currently stored), `"se"` (from the SE PB report import), `"manual"` (entered via Add/Edit Swimmer).
+- **Why this is needed, not just nice-to-have:** the SE import's conflict-handling design (see plan doc §3.2) requires being able to show a coach, per conflicting PB, "existing value came from X, incoming SE value is Y" — that's not derivable from the swimmer-level `source` field alone, since a swimmer's `source` (`sheet`/`local`) describes how the *swimmer record* originated, not where each individual PB time came from.
+- Retrofitting this onto every existing PB entry (implicitly `"gala"` for anything synced via Sheets historically) is a real migration question the implementing session needs to resolve — most likely: treat a PB entry with no `source` field as `"gala"` by default, rather than requiring a one-time backfill pass.
+
+### 9.3 SE import behavioural constraints (schema-adjacent, not just process)
+
+These aren't data-shape items, but they constrain how any future schema change must be *used*, so they're noted here rather than only in the plan doc:
+
+- The SE import path must **never** be treated as an authoritative full-roster snapshot — it must always merge with `sourceIsAuthoritative: false` semantics (see `mergeSwimmers()` in `architecture.md`), because SE reports structurally cannot list a swimmer with no recorded SE time, a new joiner, or anyone without an SE# on file. Treating it as authoritative would silently drop real swimmers — this is the same class of bug as the real v2.2.1 regression that `sourceIsAuthoritative` was built to prevent.
+- The SE import must never create, delete, or hide a swimmer, and must never write to `squad` (SE reports have no squad concept at all).
+- Any code that writes SE-sourced PBs into `sw.pbs` must go through the existing `sanitiseSwimmersData()` validation (or an equivalent enforcing the same constraints) — see the note at the end of Section 1 above.
+
+### 9.4 PB history / progression — explicitly not designed yet
+
+A newer, less-formed ask (see plan doc §5): track PB progression over time (i.e., retain a superseded PB as history rather than discarding it on overwrite), across **every** current PB-writing entry point (manual Add/Edit, Sheets sync, and the SE import once built). This would likely mean the PB entry shape needs to become an array/history-list per event+course rather than a single `{time, date}`, with "current PB" derived as the fastest — but this has **not been decided**, needs a dedicated design pass considering every existing consumer of `sw.pbs` (`buildSwimmerRows`, `collectRecentPbs`, the Bubble List, JSON export, etc.), and should not be attempted opportunistically alongside the SE import itself. See plan doc §5 for the full list of open design questions (deduplication identity, cross-source consistency, UI implications).

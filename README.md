@@ -2,15 +2,16 @@
 
 A fully self-contained, single-HTML-file coaching dashboard for swimming clubs — lets a coach see, at a glance, how every swimmer in the squad compares against County and Regional championship qualifying times, get a whole-squad "morning briefing" view, and manage all the underlying data directly in the browser.
 
-**Current version: v2.6.** This file is intentionally short — it's a landing pointer, not the project documentation. See:
+**Current version: v2.7.** This file is intentionally short — it's a landing pointer, not the project documentation. See:
 
 | File | What's in it |
 |---|---|
-| `project-brief.md` | What the project is, who it's for, core goals, current version summary |
+| `project-brief.md` | What the project is, who it's for, core goals, current version summary, and next planned work |
 | `architecture.md` | Code structure, data flow, key business logic, security notes |
-| `data-schema.md` | All JSON schemas (swimmer profiles, QT data, Sheet structure, localStorage keys) |
+| `data-schema.md` | All JSON schemas (swimmer profiles, QT data, Sheet structure, localStorage keys) — plus a clearly-marked "planned, not yet implemented" section for the SE import work |
 | `known-bugs-and-fixes.md` | Open issues and the full fix history by version |
 | `session-log.md` | Turn-by-turn history of every development session |
+| `se-pb-import-and-history-plan.md` | Full plan for the not-yet-built Swim England PB report import and PB-history feature — the leading candidate for v2.8 |
 | `coach_dashboard_handover.md` | Executive summary written for starting a fresh chat session |
 
 ## Files in this repo

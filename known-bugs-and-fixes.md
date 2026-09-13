@@ -1,23 +1,26 @@
-# Coach Dashboard — Known Bugs & Fixes (v2.6)
+# Coach Dashboard — Known Bugs & Fixes (v2.7)
 
 ---
 
 ## Open Issues
 
 ### 1. Sync token sent as a URL query parameter, not a header
-`startSync()` calls the Apps Script Web App as `${syncUrl}?token=${token}`. Risks the token landing in browser history and server/proxy access logs. Correct fix is a `doPost` handler reading the token from the JSON request body — requires a coordinated change to `apps_script_v2.2.2.gs`. **Still not fixed.** Explicitly reviewed again during the v2.6 security pass and deliberately left for a future session — it's a real, if low-urgency, fix and deserves its own focused turn rather than being squeezed in alongside everything else this session touched.
+`startSync()` calls the Apps Script Web App as `${syncUrl}?token=${token}`. Risks the token landing in browser history and server/proxy access logs. Correct fix is a `doPost` handler reading the token from the JSON request body — requires a coordinated change to `apps_script_v2.2.2.gs`. **Still not fixed.** Explicitly reviewed again during the v2.6 security pass and deliberately left for a future session — it's a real, if low-urgency, fix and deserves its own focused turn rather than being squeezed in alongside everything else. Unchanged in v2.7 (a mobile-fixes-only session).
 
 ### 2. Single shared sync token, not per-coach
-One `ACCESS_TOKEN` in Apps Script Script Properties, shared by every coach. Documented accurately in the Settings modal. No way to revoke one coach's access without changing the token for everyone. **Deliberately not addressed in v2.6** — real per-coach auth needs an Apps Script schema change (issuing/tracking/revoking individual tokens, a coach-identity concept) that's a genuine feature, not a fix; flagged during the v2.6 review but intentionally left as the documented, accepted trade-off it already was rather than bolting on something partial.
+One `ACCESS_TOKEN` in Apps Script Script Properties, shared by every coach. Documented accurately in the Settings modal. No way to revoke one coach's access without changing the token for everyone. **Deliberately not addressed** — real per-coach auth needs an Apps Script schema change (issuing/tracking/revoking individual tokens, a coach-identity concept) that's a genuine feature, not a fix; flagged during the v2.6 review and intentionally left as the documented, accepted trade-off it already was.
 
 ### 3. Apps Script quota
 Apps Script has a daily execution quota (~20,000 calls on personal accounts). No rate limiting implemented. Low risk for single-coach use. Unchanged.
 
 ### 4. GitHub QT sync has no *offline* handling
-v2.6 added retry-with-backoff for transient failures (`fetchWithRetry()` — see Fixed section), which covers the common case (a dropped connection, a momentary GitHub 5xx). What's still missing: no queued/deferred retry if the coach is genuinely offline for longer than the retry window, and no visual "you're offline" state distinct from a generic error.
+v2.6 added retry-with-backoff for transient failures (`fetchWithRetry()`), which covers the common case (a dropped connection, a momentary GitHub 5xx). What's still missing: no queued/deferred retry if the coach is genuinely offline for longer than the retry window, and no visual "you're offline" state distinct from a generic error.
 
 ### 5. Manual-upload/sync validation still isn't exhaustive
-v2.6 closed the major gaps (swimmer `dob`/`gender`/PB `time`/`event`/`course`/`date`, and QT `gender`/`course`/`event`/`age`/`qualify`/`consider` — see Fixed section), on both the manual-upload AND sync/GitHub paths now. Not yet validated: swimmer `id` (still not regenerated/checked — not a security issue post-v2.4's escaping fixes, just a data-quality gap), `squad` value (an unrecognised string is just displayed as-is rather than normalised), and QT `age` bracket strings aren't checked against the actual set County/Regional use (`10+11`…`17+` / `11/12`…`18+`) — just checked for being a non-empty string.
+v2.6 closed the major gaps (swimmer `dob`/`gender`/PB `time`/`event`/`course`/`date`, and QT `gender`/`course`/`event`/`age`/`qualify`/`consider`) on both the manual-upload AND sync/GitHub paths. Not yet validated: swimmer `id` (still not regenerated/checked — not a security issue post-v2.4's escaping fixes, just a data-quality gap), `squad` value (an unrecognised string is just displayed as-is rather than normalised), and QT `age` bracket strings aren't checked against the actual set County/Regional use (`10+11`…`17+` / `11/12`…`18+`) — just checked for being a non-empty string.
+
+### 6. (New context, no code change yet) SE PB report import — matching/conflict/history design is planned, not built
+A separate planning conversation produced a detailed, coach-approved plan for importing official Swim England PB reports (`.xlsx`, SC + LC) to validate/supplement gala-synced PBs, plus a newer, less-formed ask about tracking PB progression/history over time rather than only ever keeping the current fastest time. **Nothing here is a bug** — it's flagged here only so a future session doesn't start this work without first reading `se-pb-import-and-history-plan.md`, which has real constraints already worked out (e.g. this import must never be treated as an authoritative full-roster snapshot, for the same structural reason a real v2.2.1 regression happened before `sourceIsAuthoritative` existed).
 
 ---
 
@@ -73,7 +76,7 @@ Removed hardcoded championship date constants · removed `loadSampleData()` · r
 ## Fixed in v2.5
 
 ### Real production bug
-- **Mobile Age-composition legend digit truncation.** Some 2-digit ages (12, 13, 14, 15) rendered as a bare "1" with no ellipsis; others (16, 17, 18, 19) rendered correctly. Root cause: `.ov-legend-label { min-width: 0 }` let a long *adjacent* count string (e.g. `"15 (18%)"`) squeeze that row's label down to sub-one-character width before any ellipsis had room to render. **Fix:** `min-width: 2.4ch`.
+- **Mobile Age-composition legend digit truncation.** Some 2-digit ages (12, 13, 14, 15) rendered as a bare "1" with no ellipsis; others (16, 17, 18, 19) rendered correctly. Root cause: `.ov-legend-label { min-width: 0 }` let a long *adjacent* count string (e.g. "15 (18%)") squeeze that row's label down to sub-one-character width before any ellipsis had room to render. **Fix:** `min-width: 2.4ch`.
 
 ### Design iteration
 Hot Right Now / Bubble List entry rows went through several rounds based on direct feedback (flat row → CSS grid → two-line "time as hero stat" → grouped result block → stroke accent bar). A leading `+` sign on the Bubble List's time-difference stat was removed as ambiguous.
@@ -88,11 +91,11 @@ A "default margin is 5%" assertion that ran after a mutation; a tie-break test w
 This was a two-part session: two direct mobile bug reports (gender/squad badge height mismatch, and Bubble List event text wrapping on narrow phones), followed by a full deliberate codebase review (security, bugs, UI/accessibility, code quality) producing a 20-item list, all of which were rolled out — plus two additional issues found *while implementing* those 20 that weren't on the original list. One more mobile UX fix (Manage Data status visibility) was done in a follow-up turn. See `session-log.md` for the full turn-by-turn narrative; this section groups the same work by outcome.
 
 ### Real production bugs found and fixed
-- **Mobile gender-pill / squad-badge height mismatch.** `.gender-pill-mobile` used a relative `line-height: 1.6` while `.squad-badge` used the browser default; combined with their different `font-size`s, the two pills could never render at the same height no matter how padding was tuned. **Fix:** both now share a fixed `line-height: 15px` and `padding: 2px 8px`, so box height is identical regardless of font-size.
+- **Mobile gender-pill / squad-badge height mismatch.** `.gender-pill-mobile` used a relative `line-height: 1.6` while `.squad-badge` used the browser default; combined with their different `font-size`s, the two pills could never render at the same height no matter how padding was tuned. **Fix:** both now share a fixed `line-height: 15px` and `padding: 2px 8px`, so box height is identical regardless of font-size. **Note (v2.7): this fix was insufficient — see "Fixed in v2.7" below for what actually closed the gap.**
 - **Bubble List / Hot Right Now event text wrapping on narrow phones.** Root cause wasn't "font too big" — `.ov-entry-stat-meta .badge` (two-class selector) was more specific than the generic mobile `.badge` rule, so the SC/LC course badge inside these entries **never actually shrank on mobile at all**, staying at full desktop size next to already-abbreviated event text. **Fix:** added a matching-specificity mobile override; also tightened `.ov-entry-stat-meta`'s own font-size/gap. Fixes both sections at once since they share the class.
 - **Real stored-XSS vulnerability, found while fixing a defense-in-depth item.** Hot Right Now's `collectRecentPbs()` reads `sw.pbs` directly, bypassing the `ALL_EVENTS`/`'S'|'L'`-constrained lookup path that County/Regional/Bubble List all use — and rendered `pb.course` **completely unescaped** in a `class="badge ${e.course}"` attribute, with no validation of `pb.event`/`pb.course` anywhere in `sanitiseSwimmersData()` at the time. A manually-uploaded (or compromised-Sheet) PB with a crafted `course` string could break out of that attribute. **Fixed at the root** (sanitiser now validates `pb.event` against `ALL_EVENTS` and `pb.course` against `'S'`/`'L'`, dropping the PB if either is invalid) **and at render time** (both occurrences of `e.course` now escaped, as defense-in-depth). Verified with a dedicated XSS probe (payload rejected by the sanitiser; when injected directly bypassing the sanitiser, renders as inert escaped text with no `<img>` element created and no script execution).
 - **`.tbl-wrap` (QT Editor's table wrapper) had no matching CSS rule at all** — the class was used in `renderQTEditor()`'s markup but nothing defined it, so the table had no horizontal-scroll containment on narrow desktop windows. Added the missing `overflow-x: auto`, mirroring `.swimmer-table-wrap`.
-- **Manage Data modal warnings hidden below the fold on mobile.** Status/error/conflict messages sat in normal document flow below three data-cards; on a short mobile viewport, an upload-triggered merge conflict or sync error could go completely unnoticed unless the coach scrolled down afterward. **Fix:** wrapped the three elements in a dock that becomes `position: sticky` at the bottom of the modal's scroll area (mobile only) the moment any of them has something to show, and disappears (no empty floating bar) otherwise. Desktop unchanged.
+- **Manage Data modal warnings hidden below the fold on mobile.** Status/error/conflict messages sat in normal document flow below three data-cards; on a short mobile viewport, an upload-triggered merge conflict or sync error could go completely unnoticed unless the coach scrolled down afterward. **Fix:** wrapped the three elements in a dock that becomes `position: sticky` at the bottom of the modal's scroll area (mobile only) the moment any of them has something to show, and disappears (no empty floating bar) otherwise. Desktop unchanged. **Note (v2.7): this dock CSS fix was correct, but a DOM-order issue in the surrounding markup let the dock overlap OTHER content anyway — see "Fixed in v2.7" below.**
 
 ### Security hardening
 - **Every `localStorage.setItem()` write was previously unwrapped** — only reads (`lsGet()`) had try/catch. Added a symmetric `lsSet()`; every write site now checks the result and surfaces a real message (a dedicated status banner where one exists, or a shared one-time `warnStorageFailureOnce()` alert where it doesn't) instead of throwing uncaught and silently failing.
@@ -117,3 +120,24 @@ This was a two-part session: two direct mobile bug reports (gender/squad badge h
 - Sanitisation results (records skipped, dates dropped, values coerced) are now surfaced in the relevant success/status message instead of only logging to the console.
 - `pb.competition` — collected since early Overview work but never actually displayed — now shows as a tooltip on Hot Right Now entries.
 - `r.event`/`r.course` in the County/Regional swimmer table, and `e.course` in the Bubble List, now escaped for defense-in-depth consistency (both were already safe-by-construction, unlike the Hot Right Now case above, but were inconsistent with the rest of the file's escaping discipline).
+
+---
+
+## Fixed in v2.7
+
+A short, two-bug follow-up session. Both bugs were reported directly with screenshots; both turned out to need a different fix than the v2.6 attempt at the same symptom (bug 1) or a fix in a different layer than the one already shipped (bug 2).
+
+### Real production bugs found and fixed
+
+- **Gender pill still taller than the squad badge, despite the v2.6 fix.** The v2.6 fix (shared `line-height: 15px` on both pills) addressed the wrong layer: `line-height` constrains the line *box*, not the glyph's own rendered ink, and the ♀/♂ characters can still visually overflow a "correctly sized" line box on some mobile rendering paths. **Root-caused properly this time with two independent fixes:**
+  1. Both `.squad-badge` and `.gender-pill-mobile` now use an explicit fixed `height: 19px` with `display: inline-flex; align-items: center; justify-content: center`, replacing the line-height-based approach — box height can no longer drift regardless of glyph metrics. The mobile display-toggle also changed from `inline-block` to `inline-flex` (the only place the pill actually renders), since `inline-block` would have silently dropped the new centering behaviour on mobile specifically.
+  2. The ♂/♀ HTML entities now carry the Unicode text-presentation variation selector (U+FE0E) immediately after them (`&#9794;&#xFE0E;` / `&#9792;&#xFE0E;`), explicitly requesting the plain monochrome text glyph rather than any colour/emoji presentation a platform might otherwise substitute.
+
+  Verified with a jsdom probe reading `getComputedStyle` on both classes directly (confirmed identical `19px` height, matching flex-centering properties on both) and a source-string check for the U+FE0E selector's actual presence in the render path.
+
+- **Manage Data modal's status message overlapping the Close / Clear All Data buttons on mobile.** The v2.6 fix for status-visibility (a sticky bottom dock, `margin-bottom: -20px` to bleed flush with the modal edge) implicitly assumed the dock was the last element in the modal. It wasn't — the Clear All Data / Close button row sat after it in the markup, so the negative margin pulled that row up underneath the dock's own painted area, visually burying part of both buttons under the status message. **Fix:** reordered the modal's markup so the button row comes before the status dock, making the dock the genuine last child of the modal box. Purely a DOM-order change — no CSS touched, since the sticky-bottom CSS itself was already correct once there was nothing left below it to cover.
+
+  Verified with a jsdom probe asserting `modalBox.lastElementChild === statusDock` and that the button row precedes the dock in document order.
+
+### Process note for future sessions
+Both v2.7 fixes replaced a v2.6 fix that looked complete (correct-seeming CSS, tests passed at the time) but didn't actually close the reported gap, because the earlier fix addressed a plausible-but-wrong layer of the problem. Worth remembering when a bug report describes a symptom that was supposedly already fixed: re-derive the root cause from the actual current code rather than assuming the previous fix's diagnosis was correct and just needs reinforcing.
