@@ -1,140 +1,97 @@
-# Coach Dashboard — Handover Document (v2.7 → starting v2.8)
+# Coach Dashboard — Handover Document (v2.7 shipped → starting v2.8)
 
-**File:** `index.html` · **Lines:** ~3,940 · **Self-contained:** yes (logo embedded as base64) · **Test harness:** `test_overview.js` (jsdom, dev-time only — not shipped) + a one-off `probe_fixes.js` from v2.7 (not a permanent suite)
-
----
-
-## 1. What Changed Last Session (v2.7)
-
-A short, two-bug mobile follow-up session — **no features, no schema changes.** Both bugs were reported with screenshots and both turned out to be symptoms the v2.6 session thought it had already fixed, but hadn't fully closed. Full detail in `known-bugs-and-fixes.md`'s "Fixed in v2.7" section and `session-log.md`; condensed version below.
-
-### Bug 1 — gender pill still taller than the squad badge
-
-v2.6's fix (shared `line-height: 15px` on `.gender-pill-mobile` and `.squad-badge`) addressed the wrong layer — `line-height` constrains the line box, not the glyph's own rendered ink, and the ♀/♂ characters could still visually overflow a "correctly sized" box on some mobile rendering paths even with identical CSS. v2.7's actual fix:
-
-1. Both pills now use an explicit fixed `height: 19px` + `display: inline-flex; align-items: center; justify-content: center`, replacing the line-height approach entirely.
-2. The ♂/♀ HTML entities now carry the Unicode text-presentation variation selector (U+FE0E) immediately after them — `&#9794;&#xFE0E;` / `&#9792;&#xFE0E;` — explicitly requesting the plain monochrome glyph over any colour/emoji substitution.
-
-### Bug 2 — Manage Data status message overlapping Close / Clear All Data
-
-v2.6's sticky-bottom status dock CSS (`margin-bottom: -20px` to bleed flush with the modal edge) implicitly assumed it was the last element in the modal. It wasn't — the Clear All Data / Close button row followed it in the markup, so the negative margin pulled that row up underneath the dock. **Fix:** pure DOM reorder — the button row now precedes the dock, which is the genuine last child of the modal box. No CSS changed.
-
-### Process note worth repeating for any future session
-
-Both v2.7 fixes replaced a v2.6 fix that looked complete at the time (plausible CSS, no test failures) but didn't actually close the reported gap, because the earlier diagnosis was of a real-but-incomplete cause. **If a bug report describes something "already fixed" reappearing, re-derive the root cause from the current code rather than assuming the old fix just needs reinforcing.** Both v2.7 fixes were verified with a small dedicated jsdom probe (`probe_fixes.js`) asserting the actual property that mattered (`getComputedStyle` height/alignment equality; DOM order via `compareDocumentPosition`/`lastElementChild`) — not just "the CSS rule exists" or "the markup is present."
-
-### Housekeeping
-`index.html`'s `<title>` bumped to v2.7. When reconstructing the file locally for jsdom testing, the embedded base64 logo was temporarily stubbed with a placeholder to make local iteration lighter-weight — **this was correctly restored and re-verified before the file was delivered**, but it's a real risk worth flagging for any future session doing the same reconstruction trick: don't ship a locally-rebuilt copy without confirming binary/embedded assets made it back in unchanged.
+**File:** `index.html` · **Last shipped version:** v2.7 (no code changes since — this handover follows a planning-only session)
 
 ---
 
-## 2. What's Being Planned Next (v2.8 candidate) — SE PB Import & PB History
+## 1. What this handover covers
 
-**This is planning only. Nothing described here has been implemented.** It comes from a separate chat, not a dev session, but the coach has already reviewed and approved the core idea. Full detail, reasoning, and every open item lives in **`se-pb-import-and-history-plan.md`** — read that file in full before writing any code for this. What follows is a condensed map of it, enough to get oriented, not a substitute for reading it.
+**No code was written in the session this handover follows.** It was a planning conversation that: (a) reviewed the real sample SE PB report `.xlsx` files for the first time, clearing the hard blocker the old plan had been stuck on, and (b) worked through a request to also support PB progression history, which turned out to change the SE-import design materially rather than being a separate later feature.
 
-### The shape of the feature
-
-The coach wants to cross-check the dashboard's manually-tracked ("gala") PBs against each swimmer's *official* Swim England PB record, by uploading two report files the coach exports themselves from their own SE App account (one Short Course, one Long Course — both `.xlsx`). This is explicitly framed to the coach as **a validation tool, not a replacement data source** — that framing is why it got approved, and it constrains the design throughout.
-
-### The path that was ruled out, and why
-
-The original idea — auto-fetching each swimmer's public SE results page using the "SE #" already in the Google Sheet — was tested (it works technically, no bot-block) and then **explicitly rejected** on Swim England's own Website Terms of Use grounds: they prohibit systematic downloading/database-building from the site, and this is personal data on named minors from the sport's governing body. Not a risk call — a hard no. Don't revisit this path without the coach independently pursuing Swim England's official "interoperable program" access channel first.
-
-### The three hard constraints that shape everything
-
-1. **This import can only ever update PB *times* on swimmers that already exist.** It must never create, delete, or hide a swimmer, and must never touch `squad`. SE reports have no squad field, and structurally can't list a swimmer with zero recorded SE times or without an SE# on file — treating this as an authoritative snapshot would silently drop real swimmers from the roster. This is deliberately the same lesson already learned once in this codebase: `mergeSwimmers()`'s `sourceIsAuthoritative` flag exists because an earlier real bug (v2.2.1) treated a partial import as a complete snapshot and dropped absent swimmers. The SE import must permanently use the "not authoritative" merge path — this is a structural design constraint, not a toggle a future coach could accidentally flip.
-2. **A conflicting existing PB is never auto-resolved.** The coach has flagged that the SE App itself sometimes has gaps/errors, so a conflict (existing PB differs from the incoming SE value for the same swimmer/event/course) must be surfaced for a per-row coach decision — no global Replace/Merge switch like the one used elsewhere in the app for QT/swimmer uploads. This means each PB entry needs its own provenance tag (`gala`/`se`/`manual`), not just the existing swimmer-level `source` field.
-3. **Matching is SE#-first, name+DOB-fallback, and unmatched rows are skipped, never ghost-created.** A swimmer without a stored SE# gets matched by name+DOB (same normalisation the Sheets sync already does) and has the SE# backfilled onto their record for future imports. If neither matches, the row is skipped and reported to the coach — never silently creates a new swimmer profile.
-
-### What's genuinely new in the schema (planned, see `data-schema.md` §9 for the authoritative version)
-
-- `se` (string) on the swimmer record — the SE#.
-- `source` (`"gala"`/`"se"`/`"manual"`) on each PB entry — needed for the conflict-review UI to say where each competing value came from. Existing PB entries with no `source` should probably default to `"gala"` rather than needing a backfill pass — this migration decision is still open.
-
-### What else is in the plan, lower priority / sequenced later
-
-- **Backup & Restore** (single-file full-snapshot download/restore, replace-only, deliberately excludes sync credentials) — sequenced *after* the SE-import schema changes land, so it's designed once against the final shape.
-- **PB history/progression tracking** (retain superseded PBs instead of discarding them on overwrite) — a newer, much less-formed ask that surfaced at the very end of the planning conversation. **Explicitly not designed yet** — needs its own dedicated design pass across every PB-writing entry point (manual add/edit, Sheets sync, and the SE import once built) before any schema work starts. Do not attempt this opportunistically alongside the SE import itself; see plan doc §5 for the open questions (data shape, deduplication identity, cross-source consistency, UI implications).
-
-### Hard blocker before implementation can start
-
-**No real sample SE report file has been provided yet** — only screenshots. The coach said they'd send one "shortly." Do not start parser work from the screenshots alone; merged cells, whitespace, encoding, and exact column typing don't show up reliably in a screenshot, and the report's inconsistent blank-row spacing (confirmed from the screenshots) makes this specifically risky to get subtly wrong. If a fresh v2.8 session starts and this file still hasn't arrived, that's the first thing to chase down, not something to work around.
-
-### A suggested build order exists
-
-`se-pb-import-and-history-plan.md` §8 has a proposed (not committed) sequence: get the real sample file → confirm `.xlsx` parsing via SheetJS against it → build the block parser → add the schema fields → build matching → build conflict review → wire the two-file upload UI → *then* Backup & Restore → PB history is its own later pass. Worth following roughly as-is unless something in the real sample file invalidates an assumption.
+**Read `se-pb-import-and-history-plan.md` (v2, rewritten this session) in full before writing any code** — it now contains the confirmed report format, the full PB-history design, the locked `mergePbEntry()` spec, and the phased build order below. This handover is a condensed map of it, not a substitute.
 
 ---
 
-## 3. Things Deliberately NOT Done (carried forward, still accurate)
+## 2. What's queued, in order — start with v2.8
 
-- **Sync token as a URL query param, not a header** (Open Issue #1) — real fix, needs a coordinated `doPost` change to the `.gs` file. Reviewed again in v2.6, left for a focused future turn. Unchanged in v2.7.
-- **Single shared sync token, no per-coach revocation** (Open Issue #2) — a genuine *feature* (per-coach identity/token issuance in Apps Script), not a "fix," and already a documented, accepted trade-off in `project-brief.md`.
-- **Swimmer `id` still unvalidated**, unrecognised `squad` values still just displayed as-is, QT `age` bracket strings only checked for "non-empty string" not against the actual valid set per championship — all flagged as remaining small gaps (Open Issue #5), none security-relevant, all low priority.
-- **GitHub sync retry doesn't cover genuine extended offline periods** (Open Issue #4) — covers the common transient case; a longer-lived "you're offline" state is a bigger feature, not attempted.
-- **The SE PB import and PB history work** (Section 2 above) — approved in principle, fully planned in `se-pb-import-and-history-plan.md`, zero code written.
+Four separate versions, **each its own chat session**:
 
-If any of these come up as a request, the reasoning above is still valid — no need to re-litigate from scratch, but also no reason not to build them properly if actually wanted.
-
----
-
-## 4. Architecture — What Changed in v2.7 (full detail in `architecture.md`)
-
-### Changed in v2.7
-
-| Area | What changed |
-|---|---|
-| `.squad-badge` / `.gender-pill-mobile` CSS | Rewritten from line-height-matching to fixed `height` + `inline-flex` centering |
-| Gender glyph markup | `&#9794;&#xFE0E;` / `&#9792;&#xFE0E;` — added the U+FE0E text-presentation selector |
-| Mobile media query | `.gender-pill-mobile` display changed from `inline-block` to `inline-flex` |
-| Manage Data modal markup | Clear All Data / Close button row moved to precede `#dataModalStatusDock` in the DOM |
-
-### Things to know before touching this code (still true, some restated from v2.6 for a fresh reader)
-
-- **`collectRecentPbs()` is the one PB-reading path without the "safe by construction" property** — it reads `sw.pbs` directly rather than through the `ALL_EVENTS`-constrained lookup every other tab uses. **This is directly relevant to the planned SE import**: whatever code eventually writes SE-sourced PBs must go through `sanitiseSwimmersData()` (or an equivalent enforcing the same `pb.event`/`pb.course`/`pb.date` constraints) before persisting — don't assume a new import path inherits safety it hasn't earned.
-- **`saveQTToStorage()` returns true/false** — check the result if you add a new caller.
-- **`sanitiseSwimmersData()` returns `{ clean, skipped, datesDropped }`**, not a plain array — destructure accordingly if calling it directly.
-- **Every `localStorage.setItem()` should go through `lsSet()`, every read through `lsGet()`** — firm convention, not a suggestion.
-- **The Manage Data modal's status dock (`#dataModalStatusDock`) must remain the last child of `.modal-box`.** If a future session adds new content to that modal (e.g. an SE-import upload card, per the plan above), make sure it's added *before* the dock in the DOM, not after — that's exactly the bug v2.7 just fixed, and it's easy to reintroduce by accident when adding new UI to this specific modal.
-
----
-
-## 5. Testing Approach
-
-Standing convention, reconfirmed in v2.7: extract `<script>` → `node --check` → run `test_overview.js` (when the change touches anything it covers) → confirm with a real rendered sample or `getComputedStyle`/DOM-state assertion, not just markup presence. **v2.7 additionally demonstrated the value of a small one-off probe for a plain CSS/DOM-structure bug** (`probe_fixes.js` — not a permanent suite, written to prove the two specific v2.7 fixes) — the same "prove the actual property, not just that code exists" discipline previously reserved for security/accessibility fixes in v2.6 applies just as well to visual/layout bugs. Worth defaulting to this pattern for any future targeted bug fix rather than reasoning about CSS in the abstract.
-
-**For the SE import work specifically**, when that starts: build a parser-level test against the real sample file *before* wiring it into the UI (this is a new, comparatively risky parsing surface — inconsistent blank-row spacing was already flagged from screenshots alone), and write a dedicated matching/conflict-detection test using synthetic swimmers with deliberately overlapping/conflicting PBs, mirroring how `test_overview.js`'s tie-break tests use synthetic fixture data rather than hoping the real sample data happens to exercise every branch.
-
-`test_overview.js` needs `swimmers_pb.json` to run, which is **not committed to the repo** (contains real squad data). If a fresh session needs to run it without the real file, generate a small synthetic one matching the schema in `data-schema.md` (§1) purely for local test runs, and discard it afterward — same approach used in prior sessions.
-
----
-
-## 6. Suggested Directions for v2.8 (not commitments, just where things were left)
-
-| Priority | Idea |
-|---|---|
-| **Blocking, not started** | Get the real sample SE report file from the coach — nothing in Section 2 can safely start without it |
-| High (once unblocked) | Begin `se-pb-import-and-history-plan.md`'s suggested build order — SheetJS integration → block parser → schema fields → matching → conflict review → upload UI |
-| Carried over | `doPost` + JSON-body token fix for Sheets sync (Open Issue #1) |
-| Carried over | Per-coach sync auth (Open Issue #2) — a real feature, not a quick fix |
-| Sequenced after SE import lands | Backup & Restore (single-file bundle, replace-only) |
-| Needs its own design session | PB progression/history tracking — do not bolt onto the SE import |
-| Low | Validate/regenerate swimmer `id`; normalise unrecognised `squad` values; check QT `age` against the real valid bracket set |
-
----
-
-## 7. Files — Current State
-
-| File | Version | Description |
+| Version | Scope | Depends on |
 |---|---|---|
-| `index.html` | v2.7 | Main dashboard |
-| `apps_script_v2.2.2.gs` | v2.2.2 | Unchanged since v2.6 |
-| `test_overview.js` | v2.5 | jsdom dev-time harness — not shipped, unchanged this session |
-| `README.md` | v2.7 | Landing pointer to the docs below |
-| `project-brief.md` | v2.7 | |
-| `architecture.md` | v2.7 | |
-| `data-schema.md` | v2.7 | Now includes a clearly-marked §9 for the planned (not yet built) SE-import schema additions |
-| `known-bugs-and-fixes.md` | v2.7 | |
-| `session-log.md` | v2.7 | Full turn-by-turn history |
-| `se-pb-import-and-history-plan.md` | new | Full carried-forward plan for the SE PB import & PB history feature — read this before starting v2.8 |
+| **v2.8 — start here** | Backup & Restore: single-bundle download/restore, additive to the existing per-source Manage Data cards, Replace-only on restore, excludes sync credentials | Nothing |
+| v2.9 | SE# field: Apps Script reads `"Basic Data"` column E → `se` in payload → `mergeSwimmers()` carries it (authoritative when present) → editable field in Add/Edit Swimmer | Nothing |
+| v2.10 | `pbs` schema widening (multiple dated entries per event+course allowed, `source` field added) + `mergePbEntry()` implementation + derived current-PB helper threaded through `buildSwimmerRows`/Hot Right Now/Bubble List/`sanitiseSwimmersData` + Hot Right Now's definition tightened to "recent improvements" | v2.9 |
+| v2.11 | SE PB import itself: SheetJS → block parser → SE#/name+DOB matching → per-record diff via `mergePbEntry()` → conflict review UI → apply | v2.9 + v2.10 |
+
+**Why split this way:** the riskiest piece (v2.10's schema change) touches real existing surface area across the app — bundling it with three other changes in one sitting makes a regression hard to bisect. Separate sessions also keep each session's own doc updates (`architecture.md`, `data-schema.md`, `known-bugs-and-fixes.md`, `session-log.md`) accurate to what's actually shipped at that point.
+
+**Start the next session on v2.8.** It's fully independent of everything else queued — small, mechanical, and deliberately front-loaded ahead of v2.9–v2.11 as a safety net before those start writing into swimmer data more aggressively than anything before them.
+
+---
+
+## 3. Decisions already locked — do not re-litigate these
+
+Pulled from this session's planning conversation, all confirmed by the coach:
+
+**SE report format** (from the real sample files, not screenshots):
+- Sheet has no merged cells; swimmer-header row is one cell, one line: `"Lastname, Firstname: DD/MM/YYYY  (Gender Age) SE#"` — **no category prefix**, unlike what the old plan's screenshots suggested.
+- Column A ("Rank") is always `"1"` — it's genuinely the Rank column; this is a Top-Times-only export.
+- Blank-row spacing is inconsistent *even within one swimmer's block* — block detection must be by row shape (header pattern vs. numeric-rank-plus-known-event), never blank-row position.
+- Meet names are hard-truncated at exactly 30 characters by SE's export. **A truncated SE competition value never overwrites a fuller existing one** — only used when writing a genuinely new record.
+- `P/F/T` (race stage) column — **ignored entirely**, not stored or surfaced.
+
+**PB history:**
+- `sw.pbs` **keeps its field name** — only its cardinality widens (multiple dated entries per event+course allowed, was exactly one). No rename to `results`/`history` — keeps every existing export/sync shape valid with zero migration.
+- New per-PB-entry field: `source` (`"gala"`/`"se"`/`"manual"`). Missing `source` on existing data defaults to `"gala"` at read time — no backfill-write pass.
+- **Current PB and "was this a PB at the time" are always recomputed live, never stored/cached** — avoids staleness when a historical entry is added out of chronological order later.
+- Record identity for diffing/merging is **event + course + date** (not time) — two sources disagreeing on time for the same date is exactly what should raise a conflict, not create a duplicate record.
+- The SE report is current-best-only and **cannot backfill history in one shot** — it only ever seeds one dated point per event/course per import. Real history builds by diffing *repeated* imports over time against what's already stored. Set this expectation with the coach before v2.11 ships.
+- Gala sync's Apps Script currently collapses to fastest-per-event+course before export (`buildPayload()`) — richer gala-sourced history requires a separate future rewrite of `apps_script_v2.2.2.gs`. **Explicitly deferred**, not part of v2.8–v2.11.
+- The swim-dash-style visual "Progression" tab (charts + derived-column all-results table) — **explicitly deferred**. The data model must be correct now; the UI can follow later.
+- No visible changes to County/Regional tabs in this round.
+
+**`mergePbEntry()` — fully specified, locked, do not redesign:** see `se-pb-import-and-history-plan.md` Section 4 for the complete table. Summary: identity = event+course+date; no match → auto-add (no coach review); match+same time → no-op (source tag never silently changes); match+different time → per-record conflict, coach chooses keep-existing (no change) or use-incoming (full straight replacement of time/source/competition, respecting the truncation-preference rule).
+
+**SE# field:**
+- Confirmed location: `"Basic Data"` tab, **column E**, header `"SE #"`.
+- Sheet-sourced SE# is authoritative when present (same trust tier as name/dob/gender).
+- A Sheet-sync SE# that *conflicts* with an already-stored SE# (e.g. backfilled earlier by SE import's name+DOB fallback) gets a soft warning, not a silent overwrite.
+
+**Backup & Restore:**
+- Resequenced to build *first* (v2.8), ahead of the SE work — the old plan had it sequenced after, reasoning it needed the schema to settle first; revised because the bundle format is schema-agnostic (just snapshots/restores through existing sanitisers).
+- Additive to existing per-source cards, not a replacement.
+- Replace-only on restore, with explicit confirmation of what gets overwritten; excludes sync credentials from the bundle.
+
+---
+
+## 4. Things to know before touching code (carried forward from v2.7, still true)
+
+- **`collectRecentPbs()` is the one PB-reading path without "safe by construction"** — reads `sw.pbs` directly, bypassing `buildSwimmerRows()`'s `ALL_EVENTS`-constrained lookup. Once v2.10 widens what `pbs` can hold, this function's redefinition (Section 2's "recent improvements" change) needs the same scrutiny the v2.6 stored-XSS fix already established for it — don't assume the new shape is safe by default.
+- **`saveQTToStorage()` returns true/false** — check the result if you add a new caller.
+- **`sanitiseSwimmersData()` returns `{ clean, skipped, datesDropped }`** — destructure accordingly. This function needs updating in v2.10 to validate the widened `pbs` array (multiple entries per event+course) and the new `source` field.
+- **Every `localStorage.setItem()` goes through `lsSet()`, every read through `lsGet()`** — firm convention.
+- **The Manage Data modal's status dock (`#dataModalStatusDock`) must remain the last child of `.modal-box`** — any new UI added to that modal (Backup & Restore's entry point, in v2.8) goes *before* the dock in the DOM, not after. This is exactly the bug v2.7 fixed; easy to reintroduce by accident.
+
+---
+
+## 5. Testing approach for what's coming
+
+Standing convention: extract `<script>` → `node --check` → run `test_overview.js` where relevant → confirm with a real rendered sample or `getComputedStyle`/DOM-state assertion, not just markup presence.
+
+**v2.10 specifically** needs its own dedicated regression pass (per Section 2 of the plan doc) before v2.11 builds on it — this is the version with the most existing-surface-area risk.
+
+**v2.11 (SE import)** needs a parser-level test against the **real sample files now in hand** (not synthetic data) before wiring into the UI, plus a dedicated matching/conflict-detection test using synthetic swimmers with deliberately overlapping/conflicting dated PBs — mirroring how `test_overview.js`'s existing tie-break tests use synthetic fixtures rather than hoping real sample data happens to exercise every branch.
+
+---
+
+## 6. Files — current state
+
+| File | Version | Notes |
+|---|---|---|
+| `index.html` | v2.7 | Unchanged this session |
+| `apps_script_v2.2.2.gs` | v2.2.2 | Unchanged this session — will need updating in v2.9 (SE# column read) |
+| `se-pb-import-and-history-plan.md` | **v2, this session** | Substantially rewritten — real report format, full PB-history design, locked merge spec, phased build order |
 | `coach_dashboard_handover.md` | this file | |
+| All other docs (`architecture.md`, `data-schema.md`, `known-bugs-and-fixes.md`, `session-log.md`, `project-brief.md`, `README.md`) | v2.7 | **Not updated this session** — nothing in them changed, since no code shipped. Update these as each of v2.8–v2.11 actually lands, not before. |
+
+Real sample SE report files (`ALL_COMPETITIVE_SHORT_COURSE`, `ALL_COMPETITIVE_LONG_COURSE`) have been reviewed and their findings are captured in the plan doc — keep them (or equivalents) on hand for v2.11's parser testing.
