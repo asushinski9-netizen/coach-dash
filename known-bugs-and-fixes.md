@@ -1,11 +1,11 @@
-# Coach Dashboard — Known Bugs & Fixes (v2.7)
+# Coach Dashboard — Known Bugs & Fixes (v2.8)
 
 ---
 
 ## Open Issues
 
 ### 1. Sync token sent as a URL query parameter, not a header
-`startSync()` calls the Apps Script Web App as `${syncUrl}?token=${token}`. Risks the token landing in browser history and server/proxy access logs. Correct fix is a `doPost` handler reading the token from the JSON request body — requires a coordinated change to `apps_script_v2.2.2.gs`. **Still not fixed.** Explicitly reviewed again during the v2.6 security pass and deliberately left for a future session — it's a real, if low-urgency, fix and deserves its own focused turn rather than being squeezed in alongside everything else. Unchanged in v2.7 (a mobile-fixes-only session).
+`startSync()` calls the Apps Script Web App as `${syncUrl}?token=${token}`. Risks the token landing in browser history and server/proxy access logs. Correct fix is a `doPost` handler reading the token from the JSON request body — requires a coordinated change to `apps_script_v2.2.2.gs`. **Still not fixed.** Explicitly reviewed again during the v2.6 security pass and deliberately left for a future session — it's a real, if low-urgency, fix and deserves its own focused turn rather than being squeezed in alongside everything else. Unchanged in v2.7 and v2.8 (both mobile-fixes/single-feature sessions, not touching sync transport).
 
 ### 2. Single shared sync token, not per-coach
 One `ACCESS_TOKEN` in Apps Script Script Properties, shared by every coach. Documented accurately in the Settings modal. No way to revoke one coach's access without changing the token for everyone. **Deliberately not addressed** — real per-coach auth needs an Apps Script schema change (issuing/tracking/revoking individual tokens, a coach-identity concept) that's a genuine feature, not a fix; flagged during the v2.6 review and intentionally left as the documented, accepted trade-off it already was.
@@ -14,13 +14,41 @@ One `ACCESS_TOKEN` in Apps Script Script Properties, shared by every coach. Docu
 Apps Script has a daily execution quota (~20,000 calls on personal accounts). No rate limiting implemented. Low risk for single-coach use. Unchanged.
 
 ### 4. GitHub QT sync has no *offline* handling
-v2.6 added retry-with-backoff for transient failures (`fetchWithRetry()`), which covers the common case (a dropped connection, a momentary GitHub 5xx). What's still missing: no queued/deferred retry if the coach is genuinely offline for longer than the retry window, and no visual "you're offline" state distinct from a generic error.
+v2.6 added retry-with-backoff for transient failures (`fetchWithRetry()`), which covers the common case (a dropped connection, a momentary GitHub 5xx). What's still missing: no queued/deferred retry if the coach is genuinely offline for longer than the retry window, and no visual "you're offline" state distinct from a generic error. Not relevant to v2.8's Backup & Restore, which is a local file operation with no network dependency.
 
 ### 5. Manual-upload/sync validation still isn't exhaustive
-v2.6 closed the major gaps (swimmer `dob`/`gender`/PB `time`/`event`/`course`/`date`, and QT `gender`/`course`/`event`/`age`/`qualify`/`consider`) on both the manual-upload AND sync/GitHub paths. Not yet validated: swimmer `id` (still not regenerated/checked — not a security issue post-v2.4's escaping fixes, just a data-quality gap), `squad` value (an unrecognised string is just displayed as-is rather than normalised), and QT `age` bracket strings aren't checked against the actual set County/Regional use (`10+11`…`17+` / `11/12`…`18+`) — just checked for being a non-empty string.
+v2.6 closed the major gaps (swimmer `dob`/`gender`/PB `time`/`event`/`course`/`date`, and QT `gender`/`course`/`event`/`age`/`qualify`/`consider`) on both the manual-upload AND sync/GitHub paths, and — as of v2.8 — the Backup Restore path reuses those same checks. Not yet validated: swimmer `id` (still not regenerated/checked — not a security issue post-v2.4's escaping fixes, just a data-quality gap), `squad` value (an unrecognised string is just displayed as-is rather than normalised), and QT `age` bracket strings aren't checked against the actual set County/Regional use (`10+11`…`17+` / `11/12`…`18+`) — just checked for being a non-empty string.
 
 ### 6. (New context, no code change yet) SE PB report import — matching/conflict/history design is planned, not built
-A separate planning conversation produced a detailed, coach-approved plan for importing official Swim England PB reports (`.xlsx`, SC + LC) to validate/supplement gala-synced PBs, plus a newer, less-formed ask about tracking PB progression/history over time rather than only ever keeping the current fastest time. **Nothing here is a bug** — it's flagged here only so a future session doesn't start this work without first reading `se-pb-import-and-history-plan.md`, which has real constraints already worked out (e.g. this import must never be treated as an authoritative full-roster snapshot, for the same structural reason a real v2.2.1 regression happened before `sourceIsAuthoritative` existed).
+A separate planning conversation produced a detailed, coach-approved plan for importing official Swim England PB reports (`.xlsx`, SC + LC) to validate/supplement gala-synced PBs, plus PB progression/history tracking on top of it. **Nothing here is a bug** — it's flagged here only so a future session doesn't start this work without first reading `se-pb-import-and-history-plan.md`, which has real constraints already worked out (e.g. this import must never be treated as an authoritative full-roster snapshot, for the same structural reason a real v2.2.1 regression happened before `sourceIsAuthoritative` existed). Queued as v2.9 (SE# field) → v2.10 (`pbs` schema widening + `mergePbEntry()`) → v2.11 (the import itself). v2.8 (Backup & Restore, this version) was sequenced deliberately ahead of these three as an independent safety net — see "Added in v2.8" below.
+
+---
+
+## Added in v2.8
+
+Not a bug-fix session — a single, planned feature, built exactly to the spec locked in `se-pb-import-and-history-plan.md` Section 6. Included here (rather than only in `session-log.md`) because it introduces new data-entry surface area (a fourth way data can enter/replace the app's state) worth tracking alongside the rest of the validation/security history above.
+
+### Feature: Full Backup & Restore
+
+A new "🗄️ Full Backup & Restore" card in the Manage Data modal, additive to the three existing per-source cards (Swimmers, County QT, Regional QT):
+
+- **Download** (`downloadBackupBundle()`) bundles all three datasets — `{version, generated, swimmers, countyQt: {meta, times}, regionalQt: {meta, times}}` — into a single JSON file, `coach_dashboard_backup_YYYY-MM-DD.json`. Deliberately **excludes `coach_SYNC_URL`/`coach_SYNC_TOKEN`** — verified with a jsdom probe asserting neither value appears anywhere in the serialized bundle.
+- **Restore** (`loadBackupFile()` → `applyBackupRestore()`) reads the file, validates it has at least one of the three recognisable pieces (rejecting outright with no confirmation shown if it has none), pre-sanitises whichever pieces are present through the **existing** `sanitiseSwimmersData()`/`sanitiseQTData()` — no new sanitiser was written — and only then shows a `confirm()` naming the exact current-count → restored-count for every dataset, explicitly stating "not included in this backup — left as-is" for anything the bundle doesn't have. On confirmation, replaces only the pieces that were present (Replace-only, per-dataset, not all-or-nothing), persists via the standard `lsSet()`/`saveQTToStorage()` write-checked pattern, and re-renders.
+
+### Decisions made during scoping (for future reference)
+
+- **Partial-bundle handling — replace only what's present, leave the rest untouched, rather than rejecting the whole restore.** The app's three data sources are already independent elsewhere (each has its own sync/upload/download/clear); a bundle missing one piece (predates a source being loaded, or was deliberately exported after clearing something) shouldn't be treated as invalid. The confirmation dialog makes any gap explicit before anything happens, so there's no silent surprise.
+- **`confirm()` rather than the inline `dataConflictBox` UI.** The conflict box is built around a Replace/Merge *choice*; Restore only ever has one path (Replace-per-present-piece), so introducing a second UI paradigm for a single-path action wasn't warranted. Matches the existing `clearData()` pattern for irreversible bulk actions.
+- **Same card, stacked rows (Download on top, file input + Restore below)** rather than two separate cards — mirrors how every existing per-source card already combines a primary action with an upload row beneath it, and keeps the two directions of the same bundle visually paired rather than looking like unrelated features.
+- **No new sanitiser was written.** The bundle is just JSON containing the same three shapes every other upload/sync path already validates, so `sanitiseSwimmersData()` and `sanitiseQTData()` were reused directly — this also means any future change to those two functions (e.g. v2.10's `pbs`-schema widening) automatically applies to Restore with zero additional work.
+
+### DOM-order care (given the recent v2.7 history in this exact modal)
+
+The new card was inserted between the Regional QT card and the "Clear All Data / Close" button row — i.e. still fully **before** `#dataModalStatusDock`. This was the exact bug class v2.7 fixed (a new/reordered element in this modal accidentally ending up after the dock, breaking its sticky-bottom mobile behaviour), so it was verified explicitly with a jsdom probe asserting `modalBox.lastElementChild === statusDock` and that the button row precedes the dock in document order — the same two assertions v2.7's probe used, now re-run with the new card present.
+
+### Testing
+
+Verified with a dedicated jsdom probe, `probe_backup_restore.js` (not added to the permanent `test_overview.js` suite, following the v2.7 `probe_fixes.js` precedent of a targeted probe for a targeted change) — 32 checks: additive card presence alongside the three existing cards, the DOM-order property above, correct bundle shape and credential exclusion on download, full-restore replacement + persistence + status messaging, partial-bundle "leave untouched" behaviour for the missing piece while still replacing the present ones, and outright rejection (no `confirm()` shown) of a file with none of the three recognisable pieces. All 32 passed. `node --check` clean on the extracted script.
 
 ---
 
@@ -131,13 +159,13 @@ A short, two-bug follow-up session. Both bugs were reported directly with screen
 
 - **Gender pill still taller than the squad badge, despite the v2.6 fix.** The v2.6 fix (shared `line-height: 15px` on both pills) addressed the wrong layer: `line-height` constrains the line *box*, not the glyph's own rendered ink, and the ♀/♂ characters can still visually overflow a "correctly sized" line box on some mobile rendering paths. **Root-caused properly this time with two independent fixes:**
   1. Both `.squad-badge` and `.gender-pill-mobile` now use an explicit fixed `height: 19px` with `display: inline-flex; align-items: center; justify-content: center`, replacing the line-height-based approach — box height can no longer drift regardless of glyph metrics. The mobile display-toggle also changed from `inline-block` to `inline-flex` (the only place the pill actually renders), since `inline-block` would have silently dropped the new centering behaviour on mobile specifically.
-  2. The ♂/♀ HTML entities now carry the Unicode text-presentation variation selector (U+FE0E) immediately after them (`&#9794;&#xFE0E;` / `&#9792;&#xFE0E;`), explicitly requesting the plain monochrome text glyph rather than any colour/emoji presentation a platform might otherwise substitute.
+  2. The ♂/♀ HTML entities now carry the Unicode text-presentation variation selector (U+FE0E) immediately after them (`&#9794;&#xFE0E;` / `&#9792;&#xFE0E;`), explicitly requesting the plain monochrome text glyph rather than any colour/emoji presentation a platform might otherwise substitute for these characters.
 
   Verified with a jsdom probe reading `getComputedStyle` on both classes directly (confirmed identical `19px` height, matching flex-centering properties on both) and a source-string check for the U+FE0E selector's actual presence in the render path.
 
 - **Manage Data modal's status message overlapping the Close / Clear All Data buttons on mobile.** The v2.6 fix for status-visibility (a sticky bottom dock, `margin-bottom: -20px` to bleed flush with the modal edge) implicitly assumed the dock was the last element in the modal. It wasn't — the Clear All Data / Close button row sat after it in the markup, so the negative margin pulled that row up underneath the dock's own painted area, visually burying part of both buttons under the status message. **Fix:** reordered the modal's markup so the button row comes before the status dock, making the dock the genuine last child of the modal box. Purely a DOM-order change — no CSS touched, since the sticky-bottom CSS itself was already correct once there was nothing left below it to cover.
 
-  Verified with a jsdom probe asserting `modalBox.lastElementChild === statusDock` and that the button row precedes the dock in document order.
+  Verified with a jsdom probe asserting `modalBox.lastElementChild === statusDock` and that the button row precedes the dock in document order (`compareDocumentPosition`). **This exact assertion was re-run in v2.8** when a fourth card was added to the same modal, to make sure the same class of bug wasn't reintroduced — see "Added in v2.8" above.
 
 ### Process note for future sessions
 Both v2.7 fixes replaced a v2.6 fix that looked complete (correct-seeming CSS, tests passed at the time) but didn't actually close the reported gap, because the earlier fix addressed a plausible-but-wrong layer of the problem. Worth remembering when a bug report describes a symptom that was supposedly already fixed: re-derive the root cause from the actual current code rather than assuming the previous fix's diagnosis was correct and just needs reinforcing.

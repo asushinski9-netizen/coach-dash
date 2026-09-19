@@ -1,6 +1,6 @@
-# Coach Dashboard — Data Schemas (v2.7)
+# Coach Dashboard — Data Schemas (v2.8)
 
-**No stored-data SHAPE changes in v2.7.** This was a two-bug mobile CSS/DOM-order fix session — every field below is unchanged from v2.6. A future session (the leading candidate is "v2.8") is expected to add two new fields as part of the SE PB report import work; those are documented separately in **Section 9, below, clearly marked as planned and NOT YET IMPLEMENTED** — do not treat anything in that section as present in the current file.
+**No changes to the swimmer/QT/localStorage-key SHAPES in v2.8.** This session added Backup & Restore, which is schema-agnostic by design — it snapshots and restores the existing `SWIMMERS`/`COUNTY_QT`/`REGIONAL_QT` shapes verbatim through the *existing* sanitisers, rather than defining anything new about what a swimmer or QT row looks like. The one genuinely new schema in this document is the backup bundle's own container format — see **Section 9, below**. A future session (the leading candidate is "v2.9") is expected to add two new fields as part of the SE PB report import work; those remain documented separately in **Section 10, clearly marked as planned and NOT YET IMPLEMENTED** — do not treat anything in that section as present in the current file.
 
 ---
 
@@ -64,11 +64,11 @@
 | `date` | string | no | ISO 8601 `YYYY-MM-DD`. PBs with no `date` are excluded from the Overview tab's Hot Right Now feed (undated entries can't be placed in a chronological list). An invalid (present but malformed) date is dropped — the PB itself is kept, same as any other undated PB — rather than rendering as "NaN undefined NaN" or corrupting Hot Right Now's string-based date sort/cutoff |
 | `competition` | string | no | Name of meet where PB was set. Displayed as a tooltip on Hot Right Now entries |
 
-### Manual upload AND sync validation (`sanitiseSwimmersData`)
+### Manual upload, sync, AND restore validation (`sanitiseSwimmersData`)
 
-Used on **both** the manual-upload path and the Google Sheets sync path (previously sync data went straight to `mergeSwimmers()` unvalidated — a real gap closed in v2.6, since Apps Script's own `formatDob()`/Results-tab date formatting already produce the exact `YYYY-MM-DD` shape this sanitiser expects). Validates `name`, `dob`, `gender` (drops the whole swimmer record if any is missing/invalid), and per-PB `time`/`event`/`course` (drops just that PB if invalid) and `date` (drops just the date, keeps the PB). Returns `{ clean, skipped, datesDropped }` so callers can surface what was silently invalid in their status message rather than only logging it to the console. Does not validate/regenerate `id` or normalise an unrecognised `squad` value (Open Issue #5).
+Used on the manual-upload path, the Google Sheets sync path, and — new in v2.8 — the `swimmers` piece of a restored Backup bundle (see Section 9). Previously sync data went straight to `mergeSwimmers()` unvalidated — a real gap closed in v2.6, since Apps Script's own `formatDob()`/Results-tab date formatting already produce the exact `YYYY-MM-DD` shape this sanitiser expects. Validates `name`, `dob`, `gender` (drops the whole swimmer record if any is missing/invalid), and per-PB `time`/`event`/`course` (drops just that PB if invalid) and `date` (drops just the date, keeps the PB). Returns `{ clean, skipped, datesDropped }` so callers can surface what was silently invalid in their status message rather than only logging it to the console. Does not validate/regenerate `id` or normalise an unrecognised `squad` value (Open Issue #5).
 
-**Any future PB-writing path (the planned SE import — see Section 9) must run through this same sanitiser, or an equivalent enforcing the same constraints, before writing into `sw.pbs`.** This isn't optional hardening — it's the property that keeps Hot Right Now safe by construction against every current entry point.
+**Any future PB-writing path (the planned SE import — see Section 10) must run through this same sanitiser, or an equivalent enforcing the same constraints, before writing into `sw.pbs`.** This isn't optional hardening — it's the property that keeps Hot Right Now safe by construction against every current entry point, Backup & Restore included.
 
 ---
 
@@ -87,9 +87,9 @@ Unchanged shape — `{meta: {title, dateFrom, dateTo}, times: [...]}`, legacy pl
 | `qualify` | number\|null | Qualifying time in seconds. `null` = not offered. Validated — must be `null` or a positive finite number; a numeric-*string* value (e.g. `"34.5"` from a hand-edited file) is coerced to a number rather than rejected |
 | `consider` | number\|null | Consideration time in seconds. `null` = not offered. Same validation/coercion as `qualify` |
 
-### Manual upload AND GitHub sync validation (`sanitiseQTData`)
+### Manual upload, GitHub sync, AND restore validation (`sanitiseQTData`)
 
-Both the manual-upload and GitHub-sync paths run every row through `sanitiseQTData()`: invalid `gender`/`course`/`event`/`age` drops the row entirely; invalid (non-numeric, non-null, non-positive) `qualify`/`consider` also drops the row, except a numeric string is coerced rather than treated as invalid. Returns `{ clean, skipped, coerced }`, surfaced in the upload/sync status message via `describeSanitiseQTIssues()`.
+The manual-upload path, the GitHub-sync path, and — new in v2.8 — the `countyQt`/`regionalQt` pieces of a restored Backup bundle all run every row through `sanitiseQTData()`: invalid `gender`/`course`/`event`/`age` drops the row entirely; invalid (non-numeric, non-null, non-positive) `qualify`/`consider` also drops the row, except a numeric string is coerced rather than treated as invalid. Returns `{ clean, skipped, coerced }`, surfaced in the upload/sync/restore status message via `describeSanitiseQTIssues()`.
 
 ### GitHub sync source
 
@@ -98,7 +98,7 @@ https://raw.githubusercontent.com/asushinski9-netizen/coach-dash/main/county_qt.
 https://raw.githubusercontent.com/asushinski9-netizen/coach-dash/main/regional_qt.json
 ```
 
-Fetches retry transient failures (network error, HTTP 5xx) with a short linear backoff (`fetchWithRetry()`, up to 3 attempts total) before surfacing an error — a genuine 4xx (e.g. a renamed/missing file) still fails immediately. See `known-bugs-and-fixes.md` Open Issue #4 for what's still not covered (a longer/queued offline state).
+Fetches retry transient failures (network error, HTTP 5xx) with a short linear backoff (`fetchWithRetry()`, up to 3 attempts total) before surfacing an error — a genuine 4xx (e.g. a renamed/missing file) still fails immediately. See `known-bugs-and-fixes.md` Open Issue #4 for what's still not covered (a longer/queued offline state). Not relevant to Backup & Restore, which reads a local file, not a network resource.
 
 ---
 
@@ -129,6 +129,8 @@ Rows 1–2: headers. Data from row 3.
 | B | Gender | `M` or `F` |
 | C | Date of Birth | `DD/MM/YYYY` |
 | D | Squad | Free text — normalised via `SQUAD_MAP` |
+
+**Planned for v2.9:** column E, header `"SE #"` — see Section 10.
 
 ### "Results" tab
 Row 1: header. Data from row 2.
@@ -184,7 +186,7 @@ Formula: `index = 6 + (distance/50 × 2) − 1`
 }
 ```
 
-Fetched by `startSync()` as `GET ${syncUrl}?token=${token}` — token is a URL query parameter, not a header (Open Issue #1, still unresolved). The Apps Script's own token check (`doGet()`) uses a constant-time-ish `safeCompare()` instead of a plain `!==`, and its `setToken()` setup helper refuses to overwrite an already-configured token unless called explicitly as `setToken(true)`. Neither affects the payload shape or the query-param transport itself.
+Fetched by `startSync()` as `GET ${syncUrl}?token=${token}` — token is a URL query parameter, not a header (Open Issue #1, still unresolved). The Apps Script's own token check (`doGet()`) uses a constant-time-ish `safeCompare()` instead of a plain `!==`, and its `setToken()` setup helper refuses to overwrite an already-configured token unless called explicitly as `setToken(true)`. Neither affects the payload shape or the query-param transport itself. **Not the same object as the v2.8 backup bundle** — this is the live Sheets-sync payload; Section 9 below is a separate, dashboard-generated file format.
 
 ---
 
@@ -192,16 +194,18 @@ Fetched by `startSync()` as `GET ${syncUrl}?token=${token}` — token is a URL q
 
 | Key | Format | Written by | Notes |
 |---|---|---|---|
-| `coach_SWIMMERS` | JSON array | startSync, applySwimmersUpload, saveSwimmer, deleteSwimmer, clearData | User-authoritative. Every write goes through `lsSet()` and checks the result — see `architecture.md` |
-| `coach_COUNTY_QT_FULL` | `{meta,times}` JSON | saveQTToStorage | |
-| `coach_REGIONAL_QT_FULL` | `{meta,times}` JSON | saveQTToStorage | |
+| `coach_SWIMMERS` | JSON array | startSync, applySwimmersUpload, saveSwimmer, deleteSwimmer, clearData, **applyBackupRestore (v2.8)** | User-authoritative. Every write goes through `lsSet()` and checks the result — see `architecture.md` |
+| `coach_COUNTY_QT_FULL` | `{meta,times}` JSON | saveQTToStorage (incl. from **applyBackupRestore, v2.8**) | |
+| `coach_REGIONAL_QT_FULL` | `{meta,times}` JSON | saveQTToStorage (incl. from **applyBackupRestore, v2.8**) | |
 | `coach_COUNTY_QT` / `coach_REGIONAL_QT` | Plain array | *(legacy)* | No longer just a permanent fallback read — `migrateLegacyQTKey()` writes the data forward into the new key and deletes the legacy key on next load, if only the legacy key had data |
 | `coach_theme` | `'light'`/`'dark'` | toggleTheme | |
-| `coach_SYNC_URL` / `coach_SYNC_TOKEN` | string | saveSettings, startSync | Shared by all coaches |
+| `coach_SYNC_URL` / `coach_SYNC_TOKEN` | string | saveSettings, startSync | Shared by all coaches. **Deliberately excluded from the v2.8 backup bundle** — never read by `downloadBackupBundle()`, never written by `applyBackupRestore()` |
 | `coach_SHEETS_LAST_SYNC` | ISO timestamp | startSync | |
 | `coach_COUNTY_QT_LAST_SYNC` / `coach_REGIONAL_QT_LAST_SYNC` | ISO timestamp | syncQTFromGitHub | |
 | `coach_HOT_CUTOFF_DAYS` | string (integer) | Hot Right Now's day-cutoff input `onchange` | Restored on page load if within the input's valid range (1–365); Overview's other session state stays ephemeral |
 | `coach_BUBBLE_MARGIN` | string (float) | Bubble List's margin% input `onchange` | Restored on page load if within the input's valid range (0.1–20) |
+
+**No new key was added for the backup bundle itself** — the bundle file is read once at restore time and applied straight onto the three keys above; nothing about the bundle format is ever persisted to `localStorage` under its own key.
 
 ---
 
@@ -214,7 +218,7 @@ Fetched by `startSync()` as `GET ${syncUrl}?token=${token}` — token is a URL q
 | Sheet (`course` field) | `"SC"` | `"LC"` |
 | UI badge | `SC` | `LC` |
 
-**Planned SE report import (see Section 9) already uses this exact `S`/`L` convention in its raw source data** (`33.25S`, `42.02L` suffix format) — a genuine point in its favour, since no course-code translation layer will be needed for that field specifically.
+**Planned SE report import (see Section 10) already uses this exact `S`/`L` convention in its raw source data** (`33.25S`, `42.02L` suffix format) — a genuine point in its favour, since no course-code translation layer will be needed for that field specifically.
 
 ---
 
@@ -229,16 +233,47 @@ Fetched by `startSync()` as `GET ${syncUrl}?token=${token}` — token is a URL q
 | Overview tab dates | `"D MMM"` (no year) via `fmtDateShort()` — used only where space is tight (Hot Right Now's compact entry rows); every other date display in the app still uses the full `fmtDate()` |
 | Sheet Results tab cumulative | `"mm:ss.hh"` string |
 | Sheet Results tab splits | Float seconds |
+| Backup bundle's `generated` field | ISO 8601 timestamp, via `new Date().toISOString()` — same convention as `coach_SHEETS_LAST_SYNC` etc. |
 
 Conversion functions: `timeToSec("1:22.80")` → `82.80` · `secToTime(82.80)` → `"1:22.80"` · `fmtDate(iso)` → `"15 Nov 2025"` · `fmtDateShort(iso)` → `"15 Nov"` · `fmtDateTime(iso)` → `"01/07/2026, 12:43"`
 
 ---
 
-## 9. PLANNED, NOT YET IMPLEMENTED — SE PB Import & PB History
+## 9. Backup Bundle Format (`coach_dashboard_backup_YYYY-MM-DD.json` — new in v2.8)
 
-**Status: coach has approved building the SE PB report upload feature described below. No code exists for any of this yet.** Full detail, reasoning, and open items live in `se-pb-import-and-history-plan.md` — this section is a schema-focused summary only, kept here so anyone reading the live schema doc sees what's coming without needing to open the separate plan file. Treat every field below as **proposed**, not current, until a session actually implements it and this section is promoted into Sections 1–2 above (and this section is deleted).
+Not a `localStorage` key — a downloadable/uploadable file, generated by `downloadBackupBundle()` and consumed by `loadBackupFile()`/`applyBackupRestore()`. Snapshots all three data sources into one file.
 
-### 9.1 New swimmer field — `SE#`
+```json
+{
+  "version":   "coach-dashboard-backup-1",
+  "generated": "2026-09-18T10:00:00.000Z",
+  "swimmers":  [ ...same shape as Section 1... ],
+  "countyQt":  { "meta": { ...same shape as Section 2... }, "times": [ ... ] },
+  "regionalQt": { "meta": { ...same shape as Section 2... }, "times": [ ... ] }
+}
+```
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `version` | string | no | Currently always `"coach-dashboard-backup-1"`. Not currently checked/enforced on restore — any object with a recognisable `swimmers`/`countyQt`/`regionalQt` shape is accepted regardless of this field's value. Present for forward-compatibility if the bundle format ever needs a breaking change later |
+| `generated` | string | no | ISO 8601 timestamp of when the backup was downloaded. Informational only — not used in any restore logic |
+| `swimmers` | array | no | Same shape as Section 1's root array. If present, validated with `sanitiseSwimmersData()` and wholesale-replaces `SWIMMERS` on restore |
+| `countyQt` | object | no | `{meta, times}`, same shape as `county_qt.json` (Section 2). If present, `times` is validated with `sanitiseQTData()` and wholesale-replaces `COUNTY_QT`+`COUNTY_QT_META` on restore |
+| `regionalQt` | object | no | Same as `countyQt`, for Regional |
+
+**Every top-level field is individually optional** — a bundle with only `swimmers`, say, is still a valid backup; the missing pieces are simply left untouched on restore rather than the whole file being rejected. A file with **none** of `swimmers`/`countyQt`/`regionalQt` present at all is rejected as not a recognisable backup.
+
+**Deliberately excludes `coach_SYNC_URL`/`coach_SYNC_TOKEN`** — see Section 6. These are per-browser sync credentials, not squad data, and were never written into or read from the bundle by design (verified with a jsdom probe asserting the serialized bundle JSON does not contain either value — see `session-log.md`).
+
+**Restore is Replace-only, per piece present** — there is no merge option for Backup & Restore (unlike the per-source Upload flows, which offer Replace/Merge). A coach who wants to combine a backup with their current data should use the per-source Upload cards' Merge option instead; Restore is specifically for the "roll back to a known-good snapshot" use case.
+
+---
+
+## 10. PLANNED, NOT YET IMPLEMENTED — SE PB Import & PB History
+
+**Status: coach has approved building the SE PB report upload feature described below. No code exists for any of this yet.** Full detail, reasoning, and open items live in `se-pb-import-and-history-plan.md` — this section is a schema-focused summary only, kept here so anyone reading the live schema doc sees what's coming without needing to open the separate plan file. Treat every field below as **proposed**, not current, until a session actually implements it and this section is promoted into Sections 1–2 above (and this section is deleted). The next session in the queue is **v2.9** (SE# field) — see `coach_dashboard_handover.md`.
+
+### 10.1 New swimmer field — `SE#`
 
 ```json
 { "...": "...", "se": "1745801" }
@@ -246,19 +281,20 @@ Conversion functions: `timeToSec("1:22.80")` → `82.80` · `secToTime(82.80)` �
 
 - Proposed field name: `se` (string). Primary match key for the SE PB report import, once a swimmer has one on record.
 - **Never created by the SE import itself** — only ever backfilled onto an existing swimmer record after a successful name+DOB match (the same normalisation the existing Sheets sync already does for its own matching). A report row with no existing SE# match and no name/DOB match does not create a swimmer or an SE#; it's skipped and surfaced to the coach.
-- Not present in the Google Sheet payload today, and no plan to add it there — this is specific to the SE report import path.
+- Not present in the Google Sheet payload today, and no plan to add it there today — v2.9 will add it as column E, header `"SE #"`, on the `"Basic Data"` tab (screenshot-confirmed).
 
-### 9.2 New PB-entry field — `source`
+### 10.2 New PB-entry field — `source`
 
 ```json
 { "event": "50 Free", "course": "S", "time": "33.25", "date": "2026-07-11", "source": "gala" }
 ```
 
 - Proposed values: `"gala"` (from Google Sheets sync — today's only PB source, implicitly this value for everything currently stored), `"se"` (from the SE PB report import), `"manual"` (entered via Add/Edit Swimmer).
-- **Why this is needed, not just nice-to-have:** the SE import's conflict-handling design (see plan doc §3.2) requires being able to show a coach, per conflicting PB, "existing value came from X, incoming SE value is Y" — that's not derivable from the swimmer-level `source` field alone, since a swimmer's `source` (`sheet`/`local`) describes how the *swimmer record* originated, not where each individual PB time came from.
-- Retrofitting this onto every existing PB entry (implicitly `"gala"` for anything synced via Sheets historically) is a real migration question the implementing session needs to resolve — most likely: treat a PB entry with no `source` field as `"gala"` by default, rather than requiring a one-time backfill pass.
+- **Why this is needed, not just nice-to-have:** the SE import's conflict-handling design (see plan doc §3.2/§4) requires being able to show a coach, per conflicting PB, "existing value came from X, incoming SE value is Y" — that's not derivable from the swimmer-level `source` field alone, since a swimmer's `source` (`sheet`/`local`) describes how the *swimmer record* originated, not where each individual PB time came from.
+- Retrofitting this onto every existing PB entry (implicitly `"gala"` for anything synced via Sheets historically) is a real migration question the implementing session (v2.10) needs to resolve — most likely: treat a PB entry with no `source` field as `"gala"` by default, rather than requiring a one-time backfill pass.
+- **v2.8's Backup & Restore requires no changes when this field lands** — it snapshots/restores `sw.pbs` verbatim through `sanitiseSwimmersData()`, whatever that function's contract is at the time.
 
-### 9.3 SE import behavioural constraints (schema-adjacent, not just process)
+### 10.3 SE import behavioural constraints (schema-adjacent, not just process)
 
 These aren't data-shape items, but they constrain how any future schema change must be *used*, so they're noted here rather than only in the plan doc:
 
@@ -266,6 +302,6 @@ These aren't data-shape items, but they constrain how any future schema change m
 - The SE import must never create, delete, or hide a swimmer, and must never write to `squad` (SE reports have no squad concept at all).
 - Any code that writes SE-sourced PBs into `sw.pbs` must go through the existing `sanitiseSwimmersData()` validation (or an equivalent enforcing the same constraints) — see the note at the end of Section 1 above.
 
-### 9.4 PB history / progression — explicitly not designed yet
+### 10.4 PB history / progression — explicitly not designed yet in code, but the mechanism is fully specified in the plan doc
 
-A newer, less-formed ask (see plan doc §5): track PB progression over time (i.e., retain a superseded PB as history rather than discarding it on overwrite), across **every** current PB-writing entry point (manual Add/Edit, Sheets sync, and the SE import once built). This would likely mean the PB entry shape needs to become an array/history-list per event+course rather than a single `{time, date}`, with "current PB" derived as the fastest — but this has **not been decided**, needs a dedicated design pass considering every existing consumer of `sw.pbs` (`buildSwimmerRows`, `collectRecentPbs`, the Bubble List, JSON export, etc.), and should not be attempted opportunistically alongside the SE import itself. See plan doc §5 for the full list of open design questions (deduplication identity, cross-source consistency, UI implications).
+A newer, less-formed ask (see plan doc §3) to track PB progression over time (i.e., retain a superseded PB as history rather than discarding it on overwrite), across **every** current PB-writing entry point (manual Add/Edit, Sheets sync, and the SE import once built). This would mean the PB entry shape needs to become an array/history-list per event+course rather than a single `{time, date}` — this **has** been decided at the design level (record identity = `event+course+date`, `mergePbEntry()` fully specced and locked, "current PB" always recomputed live, never stored) but **not yet implemented in code**; that's v2.10's job. See plan doc §3–§4 for the complete design.
