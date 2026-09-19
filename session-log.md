@@ -161,17 +161,57 @@ No feature work. A separate, parallel planning conversation (not this session) p
 
 ---
 
-## Files — current state (v2.7)
+## v2.8 — September 2026 — Backup & Restore
+
+**Scope, agreed up front and held to:** Backup & Restore only, exactly as specified in `se-pb-import-and-history-plan.md` Section 6 and `coach_dashboard_handover.md`. Explicitly *not* SE#, the `pbs` schema widening, or SE import itself — those remain queued as v2.9, v2.10, and v2.11 respectively, each its own future session, per the phased build order the roadmap planning session already locked.
+
+### Two scoping questions resolved before writing code
+
+The plan doc left two implementation details open; both were resolved with the user before starting:
+
+1. **What happens when a restored bundle is missing one of the three pieces (e.g. hand-edited down to just `swimmers`)?** Decided: **replace only what's present, leave the rest untouched** — rather than rejecting the whole restore. Reasoning: the app's three data sources are already independent everywhere else (each has its own sync/upload/download/clear), a coach might legitimately restore an older backup that predates a source being loaded, and the risk of a silently-partial restore is fully covered by making the confirmation dialog name exactly what's present vs. missing before anything happens.
+2. **Where does the Restore file input live relative to Download, in the new card?** Decided: **same card, stacked rows** (Download button + info line on top, file input + Restore button below) — mirroring exactly how each existing per-source card already combines a primary action row with an upload row beneath it, rather than splitting into two cards that would suggest unrelated actions.
+
+### Implementation
+
+- New "🗄️ Full Backup & Restore" card added to `#dataModal`, positioned between the Regional QT card and the "Clear All Data / Close" button row — i.e. still before `#dataModalStatusDock`, deliberately, given the exact bug class v2.7 had just fixed in this same modal.
+- `downloadBackupBundle()` — builds `{version, generated, swimmers, countyQt: {meta, times}, regionalQt: {meta, times}}` from the live in-memory globals and triggers a `coach_dashboard_backup_YYYY-MM-DD.json` download via the same Blob/`<a>` pattern used everywhere else in the file. Never reads `coach_SYNC_URL`/`coach_SYNC_TOKEN`.
+- `loadBackupFile()` — reads the chosen file, rejects outright (no confirmation shown) if it has none of the three recognisable pieces, otherwise pre-sanitises whichever pieces *are* present through the existing `sanitiseSwimmersData()`/`sanitiseQTData()` (no new sanitiser written), then shows a `confirm()` naming exact current→restored counts per dataset, explicitly flagging any piece not included in the bundle as "left as-is."
+- `applyBackupRestore()` — on confirmation, replaces only the present pieces wholesale, persists via `lsSet()`/`saveQTToStorage()` with the standard write-checked pattern, surfaces sanitiser skip/coerce notes in the final status message, and re-renders County/Regional/Overview plus refreshing the modal's own counts.
+- Used the existing `confirm()` pattern (matching `clearData()`'s irreversible-bulk-action precedent) rather than the inline `dataConflictBox` UI, since that UI is built around a Replace/Merge *choice* and Restore only ever has one path.
+
+### Testing
+
+A dedicated jsdom probe, `probe_backup_restore.js` (not merged into the permanent `test_overview.js` suite, following the exact precedent `probe_fixes.js` set in v2.7 for a similarly-scoped, non-Overview-tab change) — 32 checks total:
+- The new card renders additively alongside all three existing cards (none removed/altered).
+- **The v2.7 DOM-order property re-verified with the new card in place**: `modalBox.lastElementChild === statusDock`, and the Clear All Data / Close row precedes the dock in document order.
+- Downloaded bundle has the correct `{version, generated, swimmers, countyQt, regionalQt}` shape, and genuinely excludes both `coach_SYNC_URL` and `coach_SYNC_TOKEN` from the serialized output (stubbed `Blob`/`URL.createObjectURL`/anchor `.click()` to capture what would have been downloaded, rather than trusting the code path by inspection alone).
+- A full 3-piece restore replaces `SWIMMERS`/`COUNTY_QT`(+meta)/`REGIONAL_QT`(+meta) correctly, shows the right `confirm()` message with accurate before→after counts, persists to the correct localStorage keys, leaves `coach_SYNC_URL`/`coach_SYNC_TOKEN` in localStorage completely untouched, and shows the expected success status message.
+- A **partial** bundle (Regional QT entirely omitted) correctly flags that in the confirmation message, replaces the two pieces that *were* present, and leaves `REGIONAL_QT`/`REGIONAL_QT_META` byte-for-byte unchanged from before the restore.
+- A file with none of the three recognisable pieces at all is rejected with an error message and **no** `confirm()` call at all, leaving all in-memory data unchanged.
+
+All 32 checks passed. `node --check` clean on the extracted `<script>` block throughout. `<title>` bumped to v2.8.
+
+### What did NOT happen this session
+
+No SE# field, no `pbs` schema change, no SE import work, and no changes to the Overview tab, County/Regional tabs, or the three existing per-source Manage Data cards beyond their unavoidable proximity to the new card. `test_overview.js` (the Overview-tab-focused suite) was not re-run, since nothing this session touched falls within what it asserts on — the dedicated probe above is the appropriate verification for this session's actual surface area, per the same reasoning `probe_fixes.js` used in v2.7.
+
+All six project docs (`architecture.md`, `data-schema.md`, `known-bugs-and-fixes.md`, `session-log.md`, `project-brief.md`, `README.md`) and `coach_dashboard_handover.md` were updated in this session to reflect v2.8 as shipped and to prepare the next session to start directly on v2.9.
+
+---
+
+## Files — current state (v2.8)
 
 | File | Version | Description |
 |---|---|---|
-| `index.html` | v2.7 | Main dashboard — ~3,940 lines |
-| `apps_script_v2.2.2.gs` | v2.2.2 | Google Apps Script — unchanged since v2.6 |
-| `test_overview.js` | v2.5 | jsdom dev-time test harness for the Overview tab (not shipped) — unchanged this session; the v2.7 fixes were verified with a separate one-off probe instead, since neither touches anything this suite already asserts on |
-| `project-brief.md` | v2.7 | Project overview and goals |
-| `architecture.md` | v2.7 | Code structure and data flow |
-| `data-schema.md` | v2.7 | All JSON schemas, plus a new "planned, not yet implemented" section for the SE import work |
-| `known-bugs-and-fixes.md` | v2.7 | Bug log |
+| `index.html` | v2.8 | Main dashboard — ~3,595 lines |
+| `apps_script_v2.2.2.gs` | v2.2.2 | Google Apps Script — unchanged since v2.6; will need updating in v2.9 for the SE# column read |
+| `test_overview.js` | v2.5 | jsdom dev-time test harness for the Overview tab (not shipped) — unchanged since v2.5; v2.7 and v2.8 both used dedicated one-off probes instead, since neither touched anything this suite asserts on |
+| `probe_backup_restore.js` | new, v2.8 | One-off jsdom probe verifying the v2.8 Backup & Restore feature specifically (not part of the shipped dashboard, not merged into `test_overview.js`) |
+| `project-brief.md` | v2.8 | Project overview and goals |
+| `architecture.md` | v2.8 | Code structure and data flow |
+| `data-schema.md` | v2.8 | All JSON schemas, including the new Backup Bundle format (Section 9) |
+| `known-bugs-and-fixes.md` | v2.8 | Bug log, plus a new "Added in v2.8" feature-log section |
 | `session-log.md` | this file | Full session history |
-| `se-pb-import-and-history-plan.md` | new | Carried-forward plan from a separate planning conversation — approved by the coach, not yet built. Leading candidate for v2.8 |
-| `coach_dashboard_handover.md` | v2.7 → v2.8 | Executive handover, written for a fresh session starting v2.8 |
+| `se-pb-import-and-history-plan.md` | v2, unchanged this session | Carried-forward plan from the earlier planning conversation — still the source of truth for v2.9–v2.11 |
+| `coach_dashboard_handover.md` | v2.8 → v2.9 | Executive handover, rewritten this session for a fresh session starting v2.9 |
