@@ -1,6 +1,6 @@
-# Coach Dashboard — Data Schemas (v2.8)
+# Coach Dashboard — Data Schemas (v2.9)
 
-**No changes to the swimmer/QT/localStorage-key SHAPES in v2.8.** This session added Backup & Restore, which is schema-agnostic by design — it snapshots and restores the existing `SWIMMERS`/`COUNTY_QT`/`REGIONAL_QT` shapes verbatim through the *existing* sanitisers, rather than defining anything new about what a swimmer or QT row looks like. The one genuinely new schema in this document is the backup bundle's own container format — see **Section 9, below**. A future session (the leading candidate is "v2.9") is expected to add two new fields as part of the SE PB report import work; those remain documented separately in **Section 10, clearly marked as planned and NOT YET IMPLEMENTED** — do not treat anything in that section as present in the current file.
+**v2.9 adds one new field: `se` (SE #), on the swimmer root object** — see Section 1 below, promoted out of what was Section 10.1's "planned" writeup now that it's actually implemented. Nothing else about the swimmer/QT/localStorage-key shapes changed. The `pbs`-array widening (multiple dated entries per event+course) and its new per-PB `source` field remain planned, not implemented — see **Section 10, clearly marked NOT YET IMPLEMENTED** — that's v2.10's job, next in the queue. The v2.8 backup-bundle format (Section 9) needed zero changes for this — see the note there.
 
 ---
 
@@ -16,6 +16,7 @@
     "squad":  "Junior",
     "source": "sheet",
     "hidden": false,
+    "se":     "1745801",
     "pbs": [
       {
         "event":       "100 Back",
@@ -38,6 +39,7 @@
 | `dob` | string | yes | ISO 8601 `YYYY-MM-DD` — used for age bracket calculation (County/Regional tabs) AND for plain calendar age (Overview tab's Squad Composition — see `architecture.md`) |
 | `gender` | string | yes | `"Boys"` or `"Girls"` — must match QT data exactly |
 | `squad` | string | no | See squad values below; omit if unassigned |
+| `se` | string | no | **New in v2.9.** Swim England ID ("SE #"). A digit string (`/^\d+$/`), no fixed length enforced — real sample values vary 7–8 digits. Editable in Add/Edit Swimmer; carried through from Google Sheets sync ("Basic Data" column E) as **authoritative when present**, same trust tier as `name`/`dob`/`gender`. Never set by anything else yet — the planned SE PB report import (v2.11) will be the only other writer, and only ever as a backfill onto an already-matched swimmer, never to create one. See `sanitiseSwimmersData()`'s validation and `mergeSwimmers()`'s conflict handling, both below |
 | `source` | string | no | `"sheet"` or `"local"` — set by Sheets sync; omitted for pre-v2.2 manual entries |
 | `hidden` | boolean | no | `true` = excluded from all renders by default; can be included in the Overview tab's Bubble List via its "Include hidden / Former Swimmers" toggle, tagged with why |
 | `pbs` | array | yes | Array of PB entry objects; can be empty `[]` |
@@ -66,7 +68,7 @@
 
 ### Manual upload, sync, AND restore validation (`sanitiseSwimmersData`)
 
-Used on the manual-upload path, the Google Sheets sync path, and — new in v2.8 — the `swimmers` piece of a restored Backup bundle (see Section 9). Previously sync data went straight to `mergeSwimmers()` unvalidated — a real gap closed in v2.6, since Apps Script's own `formatDob()`/Results-tab date formatting already produce the exact `YYYY-MM-DD` shape this sanitiser expects. Validates `name`, `dob`, `gender` (drops the whole swimmer record if any is missing/invalid), and per-PB `time`/`event`/`course` (drops just that PB if invalid) and `date` (drops just the date, keeps the PB). Returns `{ clean, skipped, datesDropped }` so callers can surface what was silently invalid in their status message rather than only logging it to the console. Does not validate/regenerate `id` or normalise an unrecognised `squad` value (Open Issue #5).
+Used on the manual-upload path, the Google Sheets sync path, and — new in v2.8 — the `swimmers` piece of a restored Backup bundle (see Section 9). Previously sync data went straight to `mergeSwimmers()` unvalidated — a real gap closed in v2.6, since Apps Script's own `formatDob()`/Results-tab date formatting already produce the exact `YYYY-MM-DD` shape this sanitiser expects. Validates `name`, `dob`, `gender` (drops the whole swimmer record if any is missing/invalid), per-PB `time`/`event`/`course` (drops just that PB if invalid) and `date` (drops just the date, keeps the PB), and — **new in v2.9** — `se` (drops just the `se` field, keeps the swimmer, if present but not `/^\d+$/`; a swimmer with no `se` at all is unaffected). Returns `{ clean, skipped, datesDropped, seDropped }` so callers can surface what was silently invalid in their status message rather than only logging it to the console. Does not validate/regenerate `id` or normalise an unrecognised `squad` value (Open Issue #5).
 
 **Any future PB-writing path (the planned SE import — see Section 10) must run through this same sanitiser, or an equivalent enforcing the same constraints, before writing into `sw.pbs`.** This isn't optional hardening — it's the property that keeps Hot Right Now safe by construction against every current entry point, Backup & Restore included.
 
@@ -129,8 +131,7 @@ Rows 1–2: headers. Data from row 3.
 | B | Gender | `M` or `F` |
 | C | Date of Birth | `DD/MM/YYYY` |
 | D | Squad | Free text — normalised via `SQUAD_MAP` |
-
-**Planned for v2.9:** column E, header `"SE #"` — see Section 10.
+| E | SE # | **New in v2.9.** Free text/number, normalised to a trimmed string via `formatSE()`; blank is fine, no format is enforced at read time (that's `sanitiseSwimmersData()`'s job on the dashboard side — see Section 1). Sheets with no column E at all behave exactly like a blank cell in every row |
 
 ### "Results" tab
 Row 1: header. Data from row 2.
@@ -175,18 +176,18 @@ Formula: `index = 6 + (distance/50 × 2) − 1`
 
 ---
 
-## 5. Apps Script Payload (unchanged since v2.2)
+## 5. Apps Script Payload (updated in v2.9 — new optional `se` field)
 
 ```json
 {
-  "version":   "2.2",
-  "generated": "2026-06-26T11:54:10.419Z",
+  "version":   "2.3",
+  "generated": "2026-09-19T11:54:10.419Z",
   "count":     62,
-  "swimmers":  [ ...swimmer objects... ]
+  "swimmers":  [ ...swimmer objects, each optionally carrying "se" (see Section 1)... ]
 }
 ```
 
-Fetched by `startSync()` as `GET ${syncUrl}?token=${token}` — token is a URL query parameter, not a header (Open Issue #1, still unresolved). The Apps Script's own token check (`doGet()`) uses a constant-time-ish `safeCompare()` instead of a plain `!==`, and its `setToken()` setup helper refuses to overwrite an already-configured token unless called explicitly as `setToken(true)`. Neither affects the payload shape or the query-param transport itself. **Not the same object as the v2.8 backup bundle** — this is the live Sheets-sync payload; Section 9 below is a separate, dashboard-generated file format.
+Fetched by `startSync()` as `GET ${syncUrl}?token=${token}` — token is a URL query parameter, not a header (Open Issue #1, still unresolved). The Apps Script's own token check (`doGet()`) uses a constant-time-ish `safeCompare()` instead of a plain `!==`, and its `setToken()` setup helper refuses to overwrite an already-configured token unless called explicitly as `setToken(true)`. Neither affects the payload shape or the query-param transport itself. `version` was bumped `"2.2"` → `"2.3"` in v2.9 to reflect the new optional `se` field on each swimmer entry — nothing on the dashboard side reads or checks this string today, it's informational. **Not the same object as the v2.8 backup bundle** — this is the live Sheets-sync payload; Section 9 below is a separate, dashboard-generated file format.
 
 ---
 
@@ -269,21 +270,11 @@ Not a `localStorage` key — a downloadable/uploadable file, generated by `downl
 
 ---
 
-## 10. PLANNED, NOT YET IMPLEMENTED — SE PB Import & PB History
+## 10. PLANNED, NOT YET IMPLEMENTED — PB History (the SE# field itself shipped in v2.9)
 
-**Status: coach has approved building the SE PB report upload feature described below. No code exists for any of this yet.** Full detail, reasoning, and open items live in `se-pb-import-and-history-plan.md` — this section is a schema-focused summary only, kept here so anyone reading the live schema doc sees what's coming without needing to open the separate plan file. Treat every field below as **proposed**, not current, until a session actually implements it and this section is promoted into Sections 1–2 above (and this section is deleted). The next session in the queue is **v2.9** (SE# field) — see `coach_dashboard_handover.md`.
+**Status: coach has approved the full mechanism below. No code exists for any of it yet — v2.9 (this session) shipped only the `se` field, now documented in Section 1 above, not the two items below.** Full detail, reasoning, and open items live in `se-pb-import-and-history-plan.md` — this section is a schema-focused summary only. Treat everything below as **proposed**, not current. Next in the queue is **v2.10** — see `coach_dashboard_handover.md`.
 
-### 10.1 New swimmer field — `SE#`
-
-```json
-{ "...": "...", "se": "1745801" }
-```
-
-- Proposed field name: `se` (string). Primary match key for the SE PB report import, once a swimmer has one on record.
-- **Never created by the SE import itself** — only ever backfilled onto an existing swimmer record after a successful name+DOB match (the same normalisation the existing Sheets sync already does for its own matching). A report row with no existing SE# match and no name/DOB match does not create a swimmer or an SE#; it's skipped and surfaced to the coach.
-- Not present in the Google Sheet payload today, and no plan to add it there today — v2.9 will add it as column E, header `"SE #"`, on the `"Basic Data"` tab (screenshot-confirmed).
-
-### 10.2 New PB-entry field — `source`
+### 10.1 New PB-entry field — `source`
 
 ```json
 { "event": "50 Free", "course": "S", "time": "33.25", "date": "2026-07-11", "source": "gala" }
@@ -294,7 +285,7 @@ Not a `localStorage` key — a downloadable/uploadable file, generated by `downl
 - Retrofitting this onto every existing PB entry (implicitly `"gala"` for anything synced via Sheets historically) is a real migration question the implementing session (v2.10) needs to resolve — most likely: treat a PB entry with no `source` field as `"gala"` by default, rather than requiring a one-time backfill pass.
 - **v2.8's Backup & Restore requires no changes when this field lands** — it snapshots/restores `sw.pbs` verbatim through `sanitiseSwimmersData()`, whatever that function's contract is at the time.
 
-### 10.3 SE import behavioural constraints (schema-adjacent, not just process)
+### 10.2 SE import behavioural constraints (schema-adjacent, not just process)
 
 These aren't data-shape items, but they constrain how any future schema change must be *used*, so they're noted here rather than only in the plan doc:
 
@@ -302,6 +293,6 @@ These aren't data-shape items, but they constrain how any future schema change m
 - The SE import must never create, delete, or hide a swimmer, and must never write to `squad` (SE reports have no squad concept at all).
 - Any code that writes SE-sourced PBs into `sw.pbs` must go through the existing `sanitiseSwimmersData()` validation (or an equivalent enforcing the same constraints) — see the note at the end of Section 1 above.
 
-### 10.4 PB history / progression — explicitly not designed yet in code, but the mechanism is fully specified in the plan doc
+### 10.3 PB history / progression — explicitly not designed yet in code, but the mechanism is fully specified in the plan doc
 
-A newer, less-formed ask (see plan doc §3) to track PB progression over time (i.e., retain a superseded PB as history rather than discarding it on overwrite), across **every** current PB-writing entry point (manual Add/Edit, Sheets sync, and the SE import once built). This would mean the PB entry shape needs to become an array/history-list per event+course rather than a single `{time, date}` — this **has** been decided at the design level (record identity = `event+course+date`, `mergePbEntry()` fully specced and locked, "current PB" always recomputed live, never stored) but **not yet implemented in code**; that's v2.10's job. See plan doc §3–§4 for the complete design.
+A newer, less-formed ask (see plan doc §3) to track PB progression over time (i.e., retain a superseded PB as history rather than discarding it on overwrite), across **every** current PB-writing entry point (manual Add/Edit, Sheets sync, and the SE import once built). This would mean the PB entry shape needs to become an array/history-list per event+course rather than a single `{time, date}` — this **has** been decided at the design level (record identity = `event+course+date`, `mergePbEntry()` fully specced and locked, "current PB" always recomputed live, never stored) but **not yet implemented in code**; that's v2.10's job. Note that v2.10's SE# dependency is now satisfied — see plan doc §3–§4 for the complete design.
