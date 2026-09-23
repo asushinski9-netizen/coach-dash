@@ -2,7 +2,7 @@
 
 ## What It Is
 
-A fully self-contained, single-HTML-file coaching dashboard for swimming clubs. It lets a coach see, at a glance, how every swimmer in the squad compares against County and Regional championship qualifying times, get a whole-squad "morning briefing" view, and manage all the underlying data (swimmers, QT standards) directly in the browser, with optional sync from Google Sheets and GitHub — plus, as of v2.8, a one-file Backup & Restore covering all of it at once.
+A fully self-contained, single-HTML-file coaching dashboard for swimming clubs. It lets a coach see, at a glance, how every swimmer in the squad compares against County and Regional championship qualifying times, get a whole-squad "morning briefing" view, and manage all the underlying data (swimmers, QT standards) directly in the browser, with optional sync from Google Sheets and GitHub — plus a one-file Backup & Restore (v2.8) covering all of it at once, and (v2.9) an optional Swim England ID ("SE #") per swimmer, laying the groundwork for the planned official SE PB report import.
 
 It is a companion tool to an existing **individual swimmer dashboard** (`swim-dash`, hosted at `asushinski9-netizen.github.io/swim-dash`) which tracks one swimmer's personal history. The coach dashboard consumes the same QT JSON file formats.
 
@@ -37,28 +37,32 @@ It is a companion tool to an existing **individual swimmer dashboard** (`swim-da
 | File | Purpose |
 |---|---|
 | `index.html` | This project — self-contained, no build step |
-| `apps_script_v2.2.2.gs` | Google Apps Script Web App — bound to the club's Google Sheet |
+| `apps_script_v2.2.3.gs` | Google Apps Script Web App — bound to the club's Google Sheet (`apps_script_v2.2.2.gs` retained in history, superseded) |
 | `county_qt.json` | County championship qualifying times (`{meta, times}` format), hosted on GitHub for sync |
 | `regional_qt.json` | Regional qualifying times (same format), hosted on GitHub for sync |
 | `swimmers_pb.json` | Squad swimmer profiles and PBs — exportable/importable, also sync-able from the Google Sheet |
 | `swim-dash/index.html` | Individual swimmer dashboard (separate project, same QT data) |
 | `test_overview.js` | jsdom dev-time test harness for the Overview tab — not shipped with the dashboard |
-| `probe_backup_restore.js` | **New (v2.8).** One-off jsdom probe verifying the Backup & Restore feature specifically — not shipped, not merged into `test_overview.js` |
+| `probe_backup_restore.js` | One-off jsdom probe verifying the v2.8 Backup & Restore feature specifically — not shipped, not merged into `test_overview.js` |
+| `test_se_field.js` | **New (v2.9).** Plain Node test for the Apps Script's new SE # column-mapping logic — not shipped |
+| `probe_se_field.js` | **New (v2.9).** One-off jsdom probe verifying the SE # feature end-to-end and two mobile CSS fixes — not shipped, not merged into `test_overview.js` |
 | `se-pb-import-and-history-plan.md` | Full plan for the not-yet-built SE PB report import and PB-history feature — see below |
 
 ## Current Version
 
-**v2.8** — Backup & Restore. A single, planned feature session, scoped exactly to `se-pb-import-and-history-plan.md` Section 6: a new "🗄️ Full Backup & Restore" card in the Manage Data modal lets a coach download Swimmers + County QT + Regional QT as one JSON bundle, and restore from one later. Restore is Replace-only per dataset present in the bundle (a bundle missing a piece leaves that piece untouched, rather than being rejected wholesale), validated through the same sanitisers every other upload path already uses, and gated behind an explicit before→after count confirmation. Deliberately excludes the sync URL/token. Fully additive — none of the three existing per-source cards were touched. This was the first of the four sessions in the SE-import roadmap (v2.8–v2.11) and is fully independent of the other three, by design — see `session-log.md` for the full writeup.
+**v2.9** — SE # field, end-to-end, scoped exactly to `se-pb-import-and-history-plan.md` Section 5. `apps_script_v2.2.3.gs` reads a new "Basic Data" column E ("SE #") and includes it in the sync payload; `mergeSwimmers()` carries it through as authoritative when present (same trust tier as name/dob/gender), with a soft warning — not a silent overwrite — if a sync brings a conflicting value for a swimmer that already has one; `sanitiseSwimmersData()` validates it (digit string, or the field is dropped without rejecting the swimmer); Add/Edit Swimmer gained an editable, optional SE # field. Two unrelated mobile bugs reported during this session were also fixed: Date of Birth/Date Set fields overflowing the Add/Edit Swimmer modal, and every text field triggering iOS's auto-zoom-on-focus. This was the second of the four sessions in the SE-import roadmap (v2.8–v2.11) and depends on nothing else in that roadmap — see `session-log.md` for the full writeup.
 
-## Next Planned Work — start with v2.9
+## Next Planned Work — start with v2.10
 
-A separate planning conversation (not the v2.8 session) produced a coach-approved plan to let the dashboard import official Swim England PB reports (exported by the coach from their own SE App account, `.xlsx`, one Short Course + one Long Course file) and cross-check them against the manually-tracked gala PBs already in the dashboard, plus a PB-history mechanism built on top of it. Full detail — architecture, matching rules, conflict-handling design, and the locked `mergePbEntry()` spec — lives in **`se-pb-import-and-history-plan.md`**. In short:
+A separate planning conversation produced a coach-approved plan to let the dashboard import official Swim England PB reports (exported by the coach from their own SE App account, `.xlsx`, one Short Course + one Long Course file) and cross-check them against the manually-tracked gala PBs already in the dashboard, plus a PB-history mechanism built on top of it. Full detail — architecture, matching rules, conflict-handling design, and the locked `mergePbEntry()` spec — lives in **`se-pb-import-and-history-plan.md`**. In short:
 
 - The original idea (auto-scraping each swimmer's public SE results page) was tested and **explicitly ruled out** — Swim England's Website Terms of Use prohibit systematic downloading/database-building from the site, and this is personal data on named individuals (mostly minors) from the sport's governing body. Not a risk-tolerance call; a hard no.
 - The unblock: the coach can export the same PB data directly and manually from their own authorised SE App account. That export is the new data source, and its real format has since been confirmed against sample files (see the plan doc).
 - The work is split into four separate future sessions, in order:
-  - **v2.9 — next up.** SE# field end-to-end: Apps Script reads `"Basic Data"` column E → `se` field in the sync payload → `mergeSwimmers()` carries it through (authoritative when present) → an editable field in Add/Edit Swimmer.
-  - **v2.10.** `pbs` schema widening (multiple dated entries per event+course, a new `source` field) + the fully-specced `mergePbEntry()` merge function + a derived "current PB" helper threaded through every existing consumer + Hot Right Now's definition tightened to "recent improvements."
+  - ~~v2.9. SE# field end-to-end~~ — **shipped, this version.**
+  - **v2.10 — next up.** `pbs` schema widening (multiple dated entries per event+course, a new `source` field) + the fully-specced `mergePbEntry()` merge function + a derived "current PB" helper threaded through every existing consumer + Hot Right Now's definition tightened to "recent improvements."
   - **v2.11.** The SE import itself — SheetJS parsing, SE#/name+DOB matching, per-record diffing via `mergePbEntry()`, a conflict review UI, and apply.
-- **v2.8 (this version) was deliberately sequenced ahead of all three** as an independent safety net, given v2.9–v2.11 start writing into swimmer data more aggressively than anything before them — see `coach_dashboard_handover.md` for the full handoff.
-- **The coach has approved the full SE report import + history mechanism.** Nothing from v2.9–v2.11 has been implemented yet.
+  - **v2.12 (newly queued, from v2.9's coach UAT).** A dedicated "Swimmers" tab for basic profile data (name/DOB/gender/squad/SE#/PB count), independent of County/Regional's PB/QT-driven filtering — see `known-bugs-and-fixes.md` Open Issue #9. Removes the current need to check "Show events without PB" on a QT-comparison tab just to find and edit a swimmer who hasn't recorded a PB yet.
+- **v2.8 (Backup & Restore) and v2.9 (SE#) were both deliberately sequenced ahead of v2.10/v2.11**, given those two start writing into swimmer data more aggressively than anything before them — see `coach_dashboard_handover.md` for the full handoff.
+- **The coach has approved the full SE report import + history mechanism.** Nothing from v2.10–v2.11 has been implemented yet.
+- **A pre-existing, unrelated bug was found (not fixed) during v2.9's regression testing** — the Bubble List's "Include hidden / Former Swimmers" toggle has two failing behaviours (see `known-bugs-and-fixes.md` Open Issue #7). Worth picking up in its own turn before or alongside v2.10.

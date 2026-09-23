@@ -200,18 +200,72 @@ All six project docs (`architecture.md`, `data-schema.md`, `known-bugs-and-fixes
 
 ---
 
-## Files — current state (v2.8)
+## v2.9 — September 2026 — SE # field, end-to-end
+
+**Scope, agreed up front and held to:** the SE# field only, exactly as specified in `se-pb-import-and-history-plan.md` Section 5. Explicitly *not* the `pbs` schema widening or SE import itself — those remain v2.10 and v2.11, each their own future session. Two unrelated mobile bugs were reported directly during this session and fixed alongside the planned work, since they were small, self-contained, and requested in the moment rather than deferred.
+
+### Two scoping questions resolved before writing code
+
+1. **How to verify the Apps Script's new column-E read**, given Apps Script itself isn't unit-testable in this environment (no live Sheet, no realistic mock worth building for `SpreadsheetApp`). Decided: extract the pure row→swimmer-fields mapping into its own function, `parseBasicDataRow(row, ss)`, with no dependency on GAS globals beyond `ss` (used only by `formatDob()`'s Date-instance branch, never exercised by the string-DOB test rows used here) — then test *that* directly from Node. This puts the actual risk of the change (a wrong column index, a header/data shape mismatch) somewhere testable, rather than leaving it inside `buildPayload()`'s untestable Sheet-reading plumbing.
+2. **Whether v2.9 gets its own dedicated probe** rather than folding into `test_overview.js` (Overview-tab-focused specifically). Decided: yes, following the `probe_fixes.js` (v2.7) / `probe_backup_restore.js` (v2.8) precedent — a targeted probe for a targeted, single-session change.
+
+### Implementation
+
+- `apps_script_v2.2.3.gs` (bumped from 2.2.2 — a behaviour change, not a security-only patch, so it earned a real version bump per the project's established convention): reads `"Basic Data"` column E (`"SE #"`) via the new `parseBasicDataRow()`/`formatSE()` pair; includes an optional `se` string per swimmer in the payload (omitted, not empty-string, when blank); bumped payload `version` `"2.2"` → `"2.3"`.
+- `index.html`:
+  - Add/Edit Swimmer modal: SE# added as its own row, directly below Gender/Squad (a third row, not squeezed into that existing 2-column grid) — an optional text input, `inputmode="numeric"`, with helper copy explaining what it is and where it comes from.
+  - `saveSwimmer()`/`editSwimmer()`: read, validate (`/^\d+$/` when present, blank is fine), and populate the field.
+  - `sanitiseSwimmersData()`: validates `se` the same "drop the field, keep the record" way an invalid PB `date` is already handled — never rejects a whole swimmer over a bad SE#. Returns a new `seDropped` count, threaded through `describeSanitiseIssues()` and every one of its existing call sites (manual upload, sync, restore) with no other changes needed at those sites.
+  - `mergeSwimmers()`: carries `se` through from an authoritative sync at the same trust tier as `name`/`dob`/`gender`. A genuine conflict (existing `se` differs from the incoming one) is a **soft warning, not a block or a silent overwrite** — the Sheet's value still wins, but the count and the swimmers' names are surfaced in `startSync()`'s success message, since a changed SE# usually signals a typo on the Sheet or an earlier SE-import fallback-match error worth a second look.
+
+### Two mobile bugs, reported directly, fixed in the same session
+
+1. **DOB / Date Set fields overflowing the Add/Edit Swimmer modal on mobile.** Root cause: a native `<input type="date">`'s intrinsic minimum content width (day/month/year segments + calendar-icon affordance) is wider than a 50%-wide CSS Grid column can offer on a narrow phone, and Grid items default to `min-width: auto` — so the input's minimum forced the column (and the modal) wider than the viewport instead of shrinking. **Fix:** `.form-grid-2` (Name+DOB) and `.pb-top-grid` (Event/Course/Time/Date Set) both collapse to a single column under the existing mobile breakpoint.
+2. **Every text field zooming the page in on focus, staying zoomed after tapping out — applies to every text field in the dashboard.** This is iOS Safari's documented behaviour: it zooms the whole viewport when a focused control's computed `font-size` is under 16px, and since it's a page-level zoom, nothing resets it on blur — hence "have to manually zoom out." Every text input/select in the dashboard sits well under 16px at its normal (desktop-tuned) size. **Fix:** one mobile-only rule raises `.form-input`, `.name-search`, `.qt-inline-input`, `.margin-input-group input`, and bare `select` to 16px; `.margin-input-group input` also widened slightly (64px→72px) to keep a 3-digit value comfortable at the larger font. Scoped entirely inside the mobile breakpoint — desktop is untouched.
+
+Both are CSS-only, inside `@media (max-width: 500px)` — no markup or JS changes for either.
+
+### Testing
+
+- **`test_se_field.js`** (new, plain Node, no jsdom) — 15/15 checks against `parseBasicDataRow()`/`formatSE()`, loaded from the real `.gs` file's source with the GAS-only functions (`doGet`, `buildPayload`, `buildOutput`, `testRun`, `setToken`, `safeCompare`) stripped out via a small brace-matching helper, evaluated in a Node `vm` context. Covers: correct column index; a normal row with an SE#; a blank SE# cell (never becomes `""`); a row shorter than 5 columns (an older Sheet without the new column yet); a numeric (not string) Sheets cell; whitespace trimming; and confirmation that SE# never rescues an otherwise-invalid row.
+- **`probe_se_field.js`** (new, jsdom, against the real `index.html`) — 24/24 checks: field placement (own row, after the Gender/Squad grid); `showAddSwimmerModal()`/`editSwimmer()` populate/clear correctly; `saveSwimmer()`'s validation (reject non-digit, accept digit, treat whitespace as blank); `sanitiseSwimmersData()`'s drop-not-reject behaviour and its `seDropped` count; `mergeSwimmers()` across all four combinations that matter (matching se, new se, genuine conflict, non-authoritative merge never touching se); plus source-text checks for both mobile CSS fixes (present inside the mobile block, absent outside it — jsdom doesn't evaluate `@media` conditions for `getComputedStyle()`, so a computed-style assertion wasn't an option here, matching the same fallback `probe_fixes.js` used in v2.7 for its own unverifiable property).
+- **Full `test_overview.js` regression run** (warranted this time — v2.9 touched shared helpers, `sanitiseSwimmersData()`/`mergeSwimmers()`, that this suite also exercises, plus mobile CSS globally): found **2 pre-existing failures** in the Bubble List's "Include hidden / Former Swimmers" toggle tests. Confirmed identical on the unmodified v2.8 baseline before any v2.9 edit — a latent bug from an earlier session, not caused by this one. Logged as new Open Issue #7 in `known-bugs-and-fixes.md` rather than fixed, since it falls outside this session's SE#-only scope. Every other check in the suite passed.
+- `node --check` clean on the extracted `<script>` block throughout, and on the `.gs` file. `<title>` bumped to v2.9.
+
+### What did NOT happen this session
+
+No `pbs` schema change, no `source` PB field, no `mergePbEntry()`, no SE import work. No changes to the Overview tab's own logic, County/Regional tabs, or the Manage Data modal beyond `sanitiseSwimmersData()`'s new `se` check (which every existing caller there picks up automatically, unchanged). The two mobile fixes were the only work outside the planned SE# scope, both reported directly and both small/self-contained.
+
+All docs (`architecture.md`, `data-schema.md`, `known-bugs-and-fixes.md`, `session-log.md`, `project-brief.md`, `README.md`, `coach_dashboard_handover.md`) updated to reflect v2.9 as shipped and point the next session at v2.10.
+
+### Post-ship follow-up, same session: a real sync bug report, a corrected diagnosis, a manual test script, and a round of UAT-driven fixes
+
+Four further turns happened after v2.9 was initially considered shipped, all still logged under v2.9 rather than a new version number, since nothing here changed the session's scope — only its correctness and completeness:
+
+1. **"SE # didn't get pulled when I resynced."** Walked through a systematic elimination (deployment created? Sheet data present? correct `index.html`?) before finding the actual cause: **Deploy → New deployment** in Apps Script mints a brand-new `/exec` URL, and the dashboard's ⚙️ Settings still had the old one saved — every resync kept hitting the stale, un-updated deployment. Not a code bug; fixed by updating the Settings URL. Logged as Open Issue #8 (operational gotcha) since this will recur whenever `apps_script_*.gs` is redeployed in a future session.
+2. **A follow-up question about the previously-logged Bubble List test failures (Open Issue #7) led to root-causing them properly**, rather than leaving them as "cause unknown, confirmed pre-existing." Traced directly: the failing fixture hardcodes a swimmer's dob+PB-time combination assuming a fixed age-bracket/QT relationship, but age brackets are date-relative — enough real time had passed that the fixture swimmer had "aged into" already-qualified status, which `buildBubbleList()` correctly excludes (it only ever shows Consideration/Outside near-misses). Re-running the identical scenario with a genuinely non-qualified time (computed dynamically against the real, current QT data, not hardcoded) reproduced the intended toggle behaviour exactly. **The actual feature has no bug** — corrected the characterisation in `known-bugs-and-fixes.md` and the handover, which had previously left this as an open question about the feature itself.
+3. **A manual, coach-facing test script was requested and written**: `user_test_script_v2.9.md`, a step-by-step checklist (no dev tools needed) covering the SE # field, the Sheets sync path including the conflict-warning case, and both mobile fixes — explicitly separate from `test_se_field.js`/`probe_se_field.js`, which verify code logic, not what a coach actually sees and clicks.
+4. **The coach ran that script and reported four real issues**, all fixed in this same session (see "Fixes made after the coach's manual UAT pass" in `known-bugs-and-fixes.md` for the full technical writeup — summarised here): Add/Edit Swimmer no longer forces an empty PB row by default (was blocking a no-PB-yet Save); the sync modal's 3-second auto-close is now disabled whenever the message has a genuine warning to read; `mergeSwimmers()` now distinguishes a swimmer that genuinely changed from one that merely matched (fixing a misleading "67 updated" on an unmodified full-roster re-upload); the Manage Data modal's conflict dialog now scrolls into view when shown; and the Date of Birth/Date Set mobile fix got a second, deeper round (explicit width/height/box-sizing pinning plus WebKit/Blink date sub-element padding resets) after the coach found round 1's single-column grid fix alone wasn't enough. One additional request from the same UAT round — a dedicated "Swimmers" tab for basic profile data — was explicitly deferred by the coach to a new **v2.12**, not folded into this session; logged as Open Issue #9.
+
+`probe_se_field.js` was extended from 24 to 40 checks to cover all of the above (the new empty-PB-list default, the `matched`/`updated` distinction across three scenarios including the exact reported "edit one thing, re-upload the roster" case, `showDataConflict()`'s `scrollIntoView()` call, a source-text check for the auto-close gating, and the round-2 date-input CSS rules). Full `test_overview.js` re-run again after this round: same 2 pre-existing failures (now root-caused, see above), nothing new. `node --check` clean throughout.
+
+---
+
+## Files — current state (v2.9)
 
 | File | Version | Description |
 |---|---|---|
-| `index.html` | v2.8 | Main dashboard — ~3,595 lines |
-| `apps_script_v2.2.2.gs` | v2.2.2 | Google Apps Script — unchanged since v2.6; will need updating in v2.9 for the SE# column read |
-| `test_overview.js` | v2.5 | jsdom dev-time test harness for the Overview tab (not shipped) — unchanged since v2.5; v2.7 and v2.8 both used dedicated one-off probes instead, since neither touched anything this suite asserts on |
-| `probe_backup_restore.js` | new, v2.8 | One-off jsdom probe verifying the v2.8 Backup & Restore feature specifically (not part of the shipped dashboard, not merged into `test_overview.js`) |
-| `project-brief.md` | v2.8 | Project overview and goals |
-| `architecture.md` | v2.8 | Code structure and data flow |
-| `data-schema.md` | v2.8 | All JSON schemas, including the new Backup Bundle format (Section 9) |
-| `known-bugs-and-fixes.md` | v2.8 | Bug log, plus a new "Added in v2.8" feature-log section |
+| `index.html` | v2.9 | Main dashboard; includes the post-UAT fixes (no-forced-PB-row, auto-close gating, matched/updated counting, conflict-box scroll, round-2 date CSS) |
+| `apps_script_v2.2.3.gs` | v2.2.3 | Google Apps Script — reads the new "Basic Data" column E ("SE #") this session; `apps_script_v2.2.2.gs` retained in repo history but superseded |
+| `test_overview.js` | v2.5 | jsdom dev-time test harness for the Overview tab — unchanged since v2.5; re-run (not edited) this session, surfacing 2 pre-existing failures now root-caused as a stale test fixture, not an app bug (see `known-bugs-and-fixes.md` Open Issue #7) |
+| `test_se_field.js` | v2.9 | Plain Node test (no jsdom) for the new Apps Script `parseBasicDataRow()`/`formatSE()` logic |
+| `probe_se_field.js` | v2.9, extended post-UAT | jsdom probe verifying the SE# feature, the round-2 mobile CSS fixes, and all four post-UAT fixes — 40 checks total (not part of the shipped dashboard, not merged into `test_overview.js`) |
+| `user_test_script_v2.9.md` | new, v2.9 | Coach-facing manual test checklist — no dev tools needed; the actual source of this session's UAT feedback round |
+| `probe_backup_restore.js` | v2.8, unchanged | One-off jsdom probe for the v2.8 Backup & Restore feature |
+| `project-brief.md` | v2.9 | Project overview and goals; roadmap now includes v2.12 (Swimmers tab) |
+| `architecture.md` | v2.9 | Code structure and data flow |
+| `data-schema.md` | v2.9 | All JSON schemas — `se` field promoted from "planned" (Section 10) into Section 1 |
+| `known-bugs-and-fixes.md` | v2.9 | Bug log; "Added in v2.9" + a second "Fixes made after the coach's manual UAT pass" section; Open Issues #7 (root-caused), #8 (deployment gotcha), #9 (Swimmers tab, deferred to v2.12) |
 | `session-log.md` | this file | Full session history |
-| `se-pb-import-and-history-plan.md` | v2, unchanged this session | Carried-forward plan from the earlier planning conversation — still the source of truth for v2.9–v2.11 |
-| `coach_dashboard_handover.md` | v2.8 → v2.9 | Executive handover, rewritten this session for a fresh session starting v2.9 |
+| `se-pb-import-and-history-plan.md` | v2, unchanged this session | Still the source of truth for v2.10–v2.11 |
+| `coach_dashboard_handover.md` | v2.9 → v2.10 | Executive handover, rewritten this session for a fresh session starting v2.10 |
