@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Broomfield Park SC - Coach Dashboard v2.9</title>
+<title>Broomfield Park SC - Coach Dashboard v2.10</title>
 <style>
 /* ── CSS Variables — matches swim-dash colour scheme ──────── */
 :root {
@@ -1659,15 +1659,29 @@ function calcStatus(pbSec, qt) {
 // ============================================================
 // BUILD SWIMMER ROWS
 // ============================================================
-function buildSwimmerRows(swimmer, qtData, ageBracketFn, courseFilter, strokeFilter, statusFilter, showNoPB) {
-  const rows   = [];
-  const bracket = ageBracketFn(swimmer.dob);
-  const pbMap  = {};
-  (swimmer.pbs || []).forEach(pb => {
+// v2.10: "current PB" is never stored — always recomputed live by scanning the FULL pbs
+// array for the fastest entry per event+course, regardless of how many dated entries now
+// exist for that event+course (see se-pb-import-and-history-plan.md Section 3.3: a stored
+// "is this the current PB" flag would go stale the moment an earlier-dated record is added
+// out of chronological order later, e.g. a coach manually backfilling an old result). This
+// was already exactly what buildSwimmerRows() did before v2.10 widened what pbs can hold —
+// pulled out into its own named helper here so every current-PB consumer (buildSwimmerRows,
+// and therefore County/Regional and the Bubble List which go through it) shares one
+// definition rather than three drifting copies of the same loop.
+function getCurrentPbMap(pbs) {
+  const pbMap = {};
+  (pbs || []).forEach(pb => {
     const key = pb.event + '|' + pb.course;
     const sec = timeToSec(pb.time);
     if (!pbMap[key] || sec < pbMap[key].sec) pbMap[key] = { ...pb, sec };
   });
+  return pbMap;
+}
+
+function buildSwimmerRows(swimmer, qtData, ageBracketFn, courseFilter, strokeFilter, statusFilter, showNoPB) {
+  const rows   = [];
+  const bracket = ageBracketFn(swimmer.dob);
+  const pbMap  = getCurrentPbMap(swimmer.pbs);
 
   ALL_EVENTS.forEach(event => {
     if (strokeFilter && !event.includes(strokeFilter)) return;
@@ -2063,12 +2077,50 @@ function renderPersonCard(name, idx, entries, renderEntry, hideReason, expandedS
   </div>`;
 }
 
+// v2.10: determines which of a swimmer's DATED pbs entries represent a genuine improvement
+// (a new best) at the moment they were recorded — grouped by event+course and evaluated in
+// chronological (date) order within each group. This is required now that a single event+
+// course can legitimately hold several historical entries (manual, gala, or eventually SE
+// import — see se-pb-import-and-history-plan.md Section 3): without it, Hot Right Now would
+// list every recorded swim, not just PBs, flooding the feed with non-improvement noise.
+// Undated entries are excluded entirely — matching the pre-existing convention that an
+// undated PB can't be placed in a chronological feed at all. Ties on date are resolved by
+// original array order (stable), matching how `buildSwimmerRows()`'s own fastest-per-
+// event+course derivation already behaves for simultaneous entries.
+function computePbImprovements(pbs) {
+  const groups = {};
+  (pbs || []).forEach((pb, i) => {
+    if (!pb.date) return;
+    const key = pb.event + '|' + pb.course;
+    (groups[key] = groups[key] || []).push({ pb, i });
+  });
+  const improvements = [];
+  Object.values(groups).forEach(list => {
+    list.sort((a, b) => a.pb.date.localeCompare(b.pb.date) || a.i - b.i);
+    let bestSec = Infinity;
+    list.forEach(({ pb }) => {
+      const sec = timeToSec(pb.time);
+      if (sec < bestSec) {
+        bestSec = sec;
+        improvements.push(pb);
+      }
+    });
+  });
+  return improvements;
+}
+
 function collectRecentPbs(limit, cutoffDate) {
   const eligible = getOverviewEligibleSwimmers();
   const entries = [];
   eligible.forEach(sw => {
-    (sw.pbs || []).forEach(pb => {
-      if (!pb.date) return;
+    // v2.10: Hot Right Now means "recent IMPROVEMENTS", not every recorded swim — see
+    // computePbImprovements() above. event/course/time/date here are still validated the
+    // same way (ALL_EVENTS / 'S'|'L' / date-shape) by sanitiseSwimmersData() regardless of
+    // how many entries a swimmer's pbs array now holds — this function reads sw.pbs directly
+    // rather than through buildSwimmerRows()'s constrained lookup (the same "not safe by
+    // construction" property flagged since the v2.6 stored-XSS fix), so widening what pbs can
+    // hold does not, by itself, change what reaches this array or how it is escaped at render.
+    computePbImprovements(sw.pbs || []).forEach(pb => {
       if (cutoffDate && pb.date < cutoffDate) return;
       entries.push({ name: sw.name, event: pb.event, course: pb.course, time: pb.time, date: pb.date, competition: pb.competition || '' });
     });
@@ -2557,11 +2609,19 @@ function readJsonFile(inputEl) {
   });
 }
 
+// v2.10: PB_SOURCES / getPbSource() — the pbs array now (v2.10) allows multiple dated entries
+// per event+course (was exactly one), each optionally tagged with where it came from. Missing
+// `source` on any entry — every PB stored before this version — is treated as 'gala' at READ
+// TIME via this helper, rather than a one-time backfill-write pass over existing data. See
+// se-pb-import-and-history-plan.md Section 3.3 and data-schema.md Section 10.1.
+const PB_SOURCES = ['gala', 'se', 'manual'];
+function getPbSource(pb) { return (pb && pb.source) || 'gala'; }
+
 function sanitiseSwimmersData(rawData) {
   const timeRe = /^(\d{1,2}:)?\d{1,2}\.\d{2}$/;
   const dobRe  = /^\d{4}-\d{2}-\d{2}$/;
   const seRe   = /^\d+$/;
-  let skipped = 0, datesDropped = 0, seDropped = 0;
+  let skipped = 0, datesDropped = 0, seDropped = 0, pbSourceDropped = 0;
   const clean = (Array.isArray(rawData) ? rawData : []).filter(sw => {
     if (!sw.name || typeof sw.name !== 'string') { skipped++; return false; }
     if (!sw.dob  || !dobRe.test(sw.dob) || isNaN(Date.parse(sw.dob))) { skipped++; return false; }
@@ -2570,15 +2630,27 @@ function sanitiseSwimmersData(rawData) {
     // whole swimmer record — same "invalid-but-not-fatal" treatment as an invalid PB date below.
     if (sw.se != null && !seRe.test(String(sw.se))) { seDropped++; delete sw.se; }
     if (Array.isArray(sw.pbs)) {
+      // v2.10: pbs may now legitimately hold several dated entries for the same event+course
+      // (see se-pb-import-and-history-plan.md Section 3) — this filter/map never deduplicated
+      // by event+course before, so no change is needed to keep that intact; only the new
+      // per-entry `source` field gets its own validation here, following the exact same
+      // "drop just the bad field, keep the record" pattern `se` uses above, rather than a
+      // parallel validation path.
       sw.pbs = sw.pbs
         .filter(pb => pb.time && timeRe.test(String(pb.time)) && ALL_EVENTS.includes(pb.event) && (pb.course === 'S' || pb.course === 'L'))
         .map(pb => {
-          if (pb.date && (!dobRe.test(pb.date) || isNaN(Date.parse(pb.date)))) {
+          let out = pb;
+          if (out.date && (!dobRe.test(out.date) || isNaN(Date.parse(out.date)))) {
             datesDropped++;
-            const { date, ...rest } = pb;
-            return rest;
+            const { date, ...rest } = out;
+            out = rest;
           }
-          return pb;
+          if (out.source != null && !PB_SOURCES.includes(out.source)) {
+            pbSourceDropped++;
+            const { source, ...rest } = out;
+            out = rest;
+          }
+          return out;
         });
     } else { sw.pbs = []; }
     return true;
@@ -2586,14 +2658,16 @@ function sanitiseSwimmersData(rawData) {
   if (skipped) console.warn(`Coach Dashboard: ${skipped} swimmer record(s) skipped due to missing or invalid required fields.`);
   if (datesDropped) console.warn(`Coach Dashboard: ${datesDropped} PB date(s) were invalid and dropped (the PB itself was kept).`);
   if (seDropped) console.warn(`Coach Dashboard: ${seDropped} SE # value(s) were invalid (non-numeric) and dropped (the swimmer record was kept).`);
-  return { clean, skipped, datesDropped, seDropped };
+  if (pbSourceDropped) console.warn(`Coach Dashboard: ${pbSourceDropped} PB source value(s) were invalid (not gala/se/manual) and dropped (the PB itself was kept).`);
+  return { clean, skipped, datesDropped, seDropped, pbSourceDropped };
 }
 
-function describeSanitiseIssues(skipped, datesDropped, seDropped) {
+function describeSanitiseIssues(skipped, datesDropped, seDropped, pbSourceDropped) {
   const parts = [];
-  if (skipped)      parts.push(`${skipped} record(s) skipped (missing/invalid name, dob, or gender)`);
-  if (datesDropped) parts.push(`${datesDropped} PB date(s) invalid and dropped (times kept)`);
-  if (seDropped)    parts.push(`${seDropped} SE # value(s) invalid and dropped (swimmer kept)`);
+  if (skipped)         parts.push(`${skipped} record(s) skipped (missing/invalid name, dob, or gender)`);
+  if (datesDropped)    parts.push(`${datesDropped} PB date(s) invalid and dropped (times kept)`);
+  if (seDropped)       parts.push(`${seDropped} SE # value(s) invalid and dropped (swimmer kept)`);
+  if (pbSourceDropped) parts.push(`${pbSourceDropped} PB source value(s) invalid and dropped (times kept)`);
   return parts.length ? ` ⚠️ ${parts.join('; ')}.` : '';
 }
 
@@ -2633,8 +2707,8 @@ function loadSwimmersFile() {
   setDataError(null); clearDataStatus();
   const input = document.getElementById('fileSwimmers');
   readJsonFile(input).then(rawData => {
-    const { clean, skipped, datesDropped, seDropped } = sanitiseSwimmersData(rawData);
-    const note = describeSanitiseIssues(skipped, datesDropped, seDropped);
+    const { clean, skipped, datesDropped, seDropped, pbSourceDropped } = sanitiseSwimmersData(rawData);
+    const note = describeSanitiseIssues(skipped, datesDropped, seDropped, pbSourceDropped);
     if (SWIMMERS.length > 0) {
       showDataConflict('swimmers', clean,
         `You already have ${SWIMMERS.length} swimmer(s) loaded. Replace will discard them and load only the file's ${clean.length} swimmer(s). Merge will match by name + date of birth, keeping the faster PB for each event.`,
@@ -2921,7 +2995,7 @@ function applyBackupRestore({ swimmersResult, countyParsed, countyResult, region
     SWIMMERS = swimmersResult.clean;
     const ok = lsSet('coach_SWIMMERS', JSON.stringify(SWIMMERS));
     if (!ok) anySaveFailed = true;
-    notes.push(`${SWIMMERS.length} swimmer(s) restored${describeSanitiseIssues(swimmersResult.skipped, swimmersResult.datesDropped, swimmersResult.seDropped)}`);
+    notes.push(`${SWIMMERS.length} swimmer(s) restored${describeSanitiseIssues(swimmersResult.skipped, swimmersResult.datesDropped, swimmersResult.seDropped, swimmersResult.pbSourceDropped)}`);
   }
   if (countyResult) {
     COUNTY_QT_META = countyParsed.meta;
@@ -3023,6 +3097,11 @@ function saveSwimmer() {
   const seRaw  = document.getElementById('asSE').value.trim();
   if (seRaw && !/^\d+$/.test(seRaw)) { errEl.textContent = 'SE # should be numbers only (e.g. 1745801).'; errEl.style.display = 'block'; return; }
   const se = seRaw || undefined;
+  // v2.10: preserve the pre-edit swimmer's pbs (if editing) so each row's `source` can be
+  // resolved against what was already on file — see resolvePbSourceOnSave() above.
+  const existingPbsForSourceLookup = editingSwimmerId
+    ? (SWIMMERS.find(s => s.id === editingSwimmerId)?.pbs || [])
+    : [];
   const pbs = [];
   for (const row of document.getElementById('asPBList').querySelectorAll('.pb-event-row')) {
     const event  = row.querySelector('.as-event').value;
@@ -3035,6 +3114,7 @@ function saveSwimmer() {
     const entry = { event, course, time };
     if (date) entry.date = date;
     if (comp) entry.competition = comp;
+    entry.source = resolvePbSourceOnSave(existingPbsForSourceLookup, entry);
     pbs.push(entry);
   }
   if (editingSwimmerId) {
@@ -3432,7 +3512,7 @@ document.addEventListener('keydown', e => {
 
 // ============================================================
 // LOGO (base64 embedded — no external dependency)
-const LOGO_DATA_URI = 'data:image/png;base64,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';
+const LOGO_DATA_URI = 'data:image/png;base64,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';
 
 // ============================================================
 // INIT
@@ -3579,8 +3659,8 @@ async function startSync() {
                         : null;
     if (!sheetSwimmersRaw) throw new Error('Unexpected data format from Apps Script.');
 
-    const { clean: sheetSwimmers, skipped, datesDropped, seDropped } = sanitiseSwimmersData(sheetSwimmersRaw);
-    const sanitiseNote = describeSanitiseIssues(skipped, datesDropped, seDropped);
+    const { clean: sheetSwimmers, skipped, datesDropped, seDropped, pbSourceDropped } = sanitiseSwimmersData(sheetSwimmersRaw);
+    const sanitiseNote = describeSanitiseIssues(skipped, datesDropped, seDropped, pbSourceDropped);
 
     const mergeMode = document.getElementById('syncMergeMode')?.value || 'keep';
     const result    = mergeSwimmers(sheetSwimmers, mergeMode, { sourceIsAuthoritative: true });
@@ -3759,11 +3839,37 @@ function mergeSwimmers(sheetSwimmers, mergeMode, opts) {
   return stats;
 }
 
+// v2.10: mergePbs() re-keyed from `${event}|${course}` to `${event}|${course}|${date||''}`.
+//
+// THE BUG THIS FIXES: the old event+course-only key silently collapsed multiple entries
+// sharing the same event+course down to whichever ONE happened to build the map last —
+// which the v2.10 pbs-array widening now explicitly allows (multiple dated PBs per
+// event+course are legitimate history, not a data error). Concretely: a coach manually adds
+// two PBs for the same event on two different dates via Add/Edit Swimmer (nothing stops
+// this, and both are saved correctly — see saveSwimmer()), then uploads/syncs a file
+// containing a faster time for that same event. Before this fix, mergePbs()'s
+// `localPbs.forEach(pb => { pbMap[key] = {...pb} })` line alone would silently discard the
+// FIRST of the two manual entries while just building the local side of the map, before the
+// uploaded file was even considered — then the uploaded entry would overwrite whatever
+// survived, wiping out both manual PBs. Reported directly by the coach; reproduced and fixed
+// in this session (see known-bugs-and-fixes.md "Fixed in v2.10").
+//
+// Re-keying by the same event+course+date identity mergePbEntry() below uses (not a
+// coincidence — it's the correct notion of "same recorded swim" either way) means every
+// distinct dated entry survives independently through a merge. The "keep the faster time"
+// comparison this function has always done now only fires when two sources genuinely
+// describe the SAME dated swim (a real duplicate-report situation worth reconciling), not
+// merely two different swims that happen to share an event+course. This is a scoped
+// correctness fix to the EXISTING quiet "keep whichever's faster" merge behaviour, applied
+// at the right granularity — it deliberately does NOT give mergePbs() mergePbEntry()'s
+// richer per-record conflict-review semantics; that stays exclusive to mergePbEntry() (and
+// v2.11's SE import), per the locked spec in se-pb-import-and-history-plan.md Section 4.
 function mergePbs(localPbs, sheetPbs) {
+  const pbKey = pb => `${pb.event}|${pb.course}|${pb.date || ''}`;
   const pbMap = {};
-  localPbs.forEach(pb => { pbMap[`${pb.event}|${pb.course}`] = { ...pb }; });
+  localPbs.forEach(pb => { pbMap[pbKey(pb)] = { ...pb }; });
   sheetPbs.forEach(pb => {
-    const key      = `${pb.event}|${pb.course}`;
+    const key      = pbKey(pb);
     const existing = pbMap[key];
     const newSec   = syncTimeToSec(pb.time);
     const oldSec   = existing ? syncTimeToSec(existing.time) : Infinity;
@@ -3775,6 +3881,121 @@ function mergePbs(localPbs, sheetPbs) {
     }
   });
   return Object.values(pbMap);
+}
+
+// ============================================================
+// mergePbEntry() — v2.10, per se-pb-import-and-history-plan.md Section 4 (LOCKED SPEC).
+//
+// One definition of "is this the same swim as one already on file," used everywhere a
+// single incoming PB record needs to be reconciled against a swimmer's existing pbs array —
+// starting with v2.11's SE import, but implemented and tested now, ahead of that caller,
+// per the phased build order in the plan doc.
+//
+// Identity key: event + course + date. Deliberately NOT including `time` — two sources
+// disagreeing about the time for the same real swim is exactly what should raise a
+// conflict, not fragment into a fake extra record.
+//
+//   mergePbEntry(existingPbs, incoming)
+//     existingPbs — a swimmer's current pbs array (unmutated; a new array is always returned)
+//     incoming    — { event, course, date, time, competition, source }
+//
+//   Returns { pbs, outcome, ...extra }:
+//     outcome 'add'      — no existing entry matched event+course+date. Auto-appended,
+//                           tagged with incoming's source. No coach review needed.
+//     outcome 'noop'     — an existing entry matched event+course+date AND time. Nothing
+//                           changes — including `source`, even if incoming's source differs
+//                           from what's already stored. A source tag is sticky; it only
+//                           changes via an actual conflict resolved as "use incoming" below,
+//                           never silently on a matching no-op.
+//     outcome 'conflict' — an existing entry matched event+course+date but `time` differs.
+//                           Surfaced for a PER-RECORD coach decision — never auto-resolved.
+//                           `existingEntry`/`incomingEntry`/`index` are included so the
+//                           caller's UI can show both and let the coach choose; call
+//                           resolvePbEntryConflict() below with their choice.
+// ============================================================
+
+// SE's export hard-truncates competition/meet names at exactly 30 characters (confirmed
+// empirically against real sample files — see se-pb-import-and-history-plan.md Section 2).
+// A truncated incoming value should never clobber a fuller value already on file.
+const SE_COMPETITION_TRUNCATION_LENGTH = 30;
+
+function isTruncatedFragmentOf(candidate, fuller) {
+  if (!candidate || !fuller) return false;
+  return candidate.length === SE_COMPETITION_TRUNCATION_LENGTH &&
+         fuller.length > candidate.length &&
+         fuller.startsWith(candidate);
+}
+
+// Competition/venue handling (per the locked spec — NOT part of identity): the incoming
+// competition string only overwrites/sets the stored value if the stored value is empty, or
+// the incoming value is NOT a truncated fragment of a fuller existing value. Otherwise the
+// existing (fuller) competition text is kept even though the time itself is updating.
+function mergeCompetitionField(existingComp, incomingComp) {
+  if (!existingComp) return incomingComp || undefined;
+  if (!incomingComp) return existingComp;
+  if (isTruncatedFragmentOf(incomingComp, existingComp)) return existingComp;
+  return incomingComp;
+}
+
+function pbEntryMatches(pb, incoming) {
+  return pb.event === incoming.event && pb.course === incoming.course && (pb.date || '') === (incoming.date || '');
+}
+
+function mergePbEntry(existingPbs, incoming) {
+  const pbs = (existingPbs || []).slice();
+  const idx = pbs.findIndex(pb => pbEntryMatches(pb, incoming));
+
+  if (idx === -1) {
+    const added = { event: incoming.event, course: incoming.course, time: incoming.time };
+    if (incoming.date) added.date = incoming.date;
+    if (incoming.competition) added.competition = incoming.competition;
+    added.source = incoming.source || 'manual';
+    pbs.push(added);
+    return { pbs, outcome: 'add' };
+  }
+
+  const existing = pbs[idx];
+  if (timeToSec(existing.time) === timeToSec(incoming.time)) {
+    // No-op: return an UNMODIFIED copy — source is sticky and never changes on a match,
+    // even if incoming.source differs from what's already stored (locked spec).
+    return { pbs: (existingPbs || []).slice(), outcome: 'noop' };
+  }
+
+  // Conflict: surfaced for a per-record coach decision, never auto-resolved either way.
+  return { pbs: (existingPbs || []).slice(), outcome: 'conflict', existingEntry: existing, incomingEntry: incoming, index: idx };
+}
+
+// Applies a coach's decision on a mergePbEntry() 'conflict' outcome.
+//   resolution 'keep'     — nothing changes (existingPbs returned unmodified).
+//   resolution 'incoming' — full straight replacement: time, source, and competition
+//                           (respecting mergeCompetitionField()'s truncation-preference
+//                           rule) all update to the incoming values. No partial-supersede/
+//                           retain-history mechanism yet (that's later Progression-era work,
+//                           per the plan doc — out of scope for v2.10/v2.11).
+function resolvePbEntryConflict(existingPbs, index, incoming, resolution) {
+  const pbs = (existingPbs || []).slice();
+  if (resolution !== 'incoming') return pbs;
+  const existing = pbs[index];
+  const updated = { ...existing, time: incoming.time, source: incoming.source || 'manual' };
+  const mergedComp = mergeCompetitionField(existing.competition, incoming.competition);
+  if (mergedComp) updated.competition = mergedComp; else delete updated.competition;
+  pbs[index] = updated;
+  return pbs;
+}
+
+// v2.10: decides the `source` to store for a PB row saved through Add/Edit Swimmer. If an
+// entry with the exact same event+course+date+time already existed on this swimmer, its
+// original source carries through unchanged — editing an unrelated field (name, squad, SE#)
+// and re-saving must never silently reclassify an untouched gala-synced PB history as
+// "manual" just because the form always rebuilds the whole pbs array on Save. Anything
+// genuinely new, or with a changed date/time, is tagged 'manual', since a human just typed
+// it into this form. Uses the same event+course+date+time identity concept as
+// mergePbEntry()/pbEntryMatches() above, for consistency.
+function resolvePbSourceOnSave(existingPbs, entry) {
+  const match = (existingPbs || []).find(pb =>
+    pbEntryMatches(pb, entry) && timeToSec(pb.time) === timeToSec(entry.time)
+  );
+  return match ? getPbSource(match) : 'manual';
 }
 
 function setSyncStatus(type, msg) {

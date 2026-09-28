@@ -1,108 +1,97 @@
-# Coach Dashboard — Handover Document (v2.9 shipped → starting v2.10)
+# Coach Dashboard — Handover Document (v2.10 shipped → starting v2.11)
 
-**File:** `index.html` · **Last shipped version:** v2.9 (SE # field, end-to-end — code shipped and verified this session)
+**File:** `index.html` · **Last shipped version:** v2.10 (`pbs` schema widening + `mergePbEntry()` — code shipped and verified this session)
 
 ---
 
 ## 1. What this handover covers
 
-**v2.9 (SE # field) shipped in the session this handover follows, then refined further after the coach ran a full manual UAT pass in the same session** (see `user_test_script_v2.9.md`). Scope held to `se-pb-import-and-history-plan.md` Section 5, plus mobile fixes and UX fixes reported directly during testing — all fixed in this same session, still v2.9. Nothing from v2.10/v2.11 was started. One feature request surfaced during UAT (a dedicated "Swimmers" tab) was explicitly deferred by the coach to a new **v2.12**, not folded into this session.
+**v2.10 (`pbs` schema widening + `mergePbEntry()`) shipped in the session this handover follows.** Scope held to `se-pb-import-and-history-plan.md` Sections 3–4, plus one real production bug found and fixed mid-session (see below). Nothing from v2.11 was started.
 
-**Read `se-pb-import-and-history-plan.md` in full before writing any v2.10 code** — it still contains the confirmed SE report format, the full PB-history design, the locked `mergePbEntry()` spec, and the phased build order below. This handover is a condensed map of it, not a substitute. Also skim `known-bugs-and-fixes.md`'s "Added in v2.9" and "Fixes made after the coach's manual UAT pass" sections, and `session-log.md`'s v2.9 entry, for exactly what shipped and how it was verified.
+**Read `se-pb-import-and-history-plan.md` in full before writing any v2.11 code** — it still contains the confirmed SE report format (Section 2) and the SE#/name+DOB matching rules (Section 5, shipped in v2.9). This handover is a condensed map, not a substitute.
 
-**One thing to pick up before or alongside v2.10, root-caused since this session (not a coach-facing bug — see below):** `test_overview.js`'s `sw_bubble_hidden_test` fixture (Section 7) hardcodes a swimmer's dob+time assuming a fixed age-bracket/QT relationship that doesn't hold as real time passes — the swimmer has since "aged into" already-qualified status, so it no longer exercises the Consideration/Outside path the test intends. **The actual `buildBubbleList()`/toggle feature was verified working correctly** with a properly non-qualified fixture time. Fix needed is test-only: rebuild that fixture the same dynamic way (`getCountyAgeBracket()` + `lookupQT()`, not hardcoded values) Section 12's tie-break test already does. See `known-bugs-and-fixes.md` Open Issue #7 for the full trace. Low priority, but tidy up alongside v2.10's own `test_overview.js` pass.
+**The mid-session bug fix, worth knowing about going into v2.11:** the coach reported that manually-entered PBs for the same event+course were being silently wiped out by a routine upload-merge or Google Sheets sync. Root cause was `mergePbs()` keying its working map by `event|course` only, with no date — fixed by re-keying to `event|course|date`, the same identity `mergePbEntry()` itself uses. This is now the correct, tested behaviour `mergeSwimmers()`/`mergePbs()` exhibit — **v2.11's SE import must not reintroduce this bug** by, say, adding its own separate merge path that doesn't share this identity concept. Use `mergePbEntry()` (already implemented and tested) for the import's own per-record diffing, not a new hand-rolled comparison.
 
-**Operational gotcha discovered post-v2.9, relevant to v2.10/v2.11 too:** using **Deploy → New deployment** in Apps Script (instead of editing the existing deployment's version) mints a brand-new `/exec` URL — if the dashboard's ⚙️ Settings still has the old URL saved, sync silently keeps hitting the stale deployment with no error, and a genuinely-correct code change looks like it "didn't work." Not a code bug (nothing to fix here), but worth checking explicitly after any `apps_script_*.gs` redeploy in a future session — see `known-bugs-and-fixes.md` Open Issue #8 for the full writeup.
+**OUTSTANDING BEFORE v2.11 STARTS - the logo:** the `index.html` delivered with v2.10 carries a small placeholder badge as `LOGO_DATA_URI` (flagged by a code comment), because the real base64 was stubbed for local testing and a hand-retyped restore came out corrupted. Splice the real `LOGO_DATA_URI` line from the last known-good v2.9 file back in **verbatim (straight copy, never retyped)** and re-check the header renders. v2.11 should not start from a file with the placeholder in it.
 
-**Queued for v2.12, not v2.10/v2.11 — don't fold this in by accident:** a dedicated "Swimmers" tab for basic profile data (name/DOB/gender/squad/SE#/PB count), independent of the County/Regional tabs' PB/QT-driven filtering. See `known-bugs-and-fixes.md` Open Issue #9.
+**Open Issue #10 (new, unfixed):** `name|dob` swimmer matching is sensitive to internal whitespace differences - see `known-bugs-and-fixes.md`. v2.11's name+DOB fallback matching should share whatever normalisation is decided.
+
+**Issue #7 (`test_overview.js`'s stale fixture) is fixed, not just tracked** — `test_overview.js` now passes with zero known failures. If v2.11 needs its own `test_overview.js` pass, start from this clean baseline.
+
+**Queued for v2.12, not v2.11 — don't fold this in by accident:** a dedicated "Swimmers" tab for basic profile data. See `known-bugs-and-fixes.md` Open Issue #9.
 
 ---
 
-## 2. What's queued, in order — start with v2.10
+## 2. What's queued, in order — start with v2.11
 
-Two remaining versions, **each its own chat session**:
+One remaining version:
 
 | Version | Scope | Depends on |
 |---|---|---|
 | ~~v2.8~~ | ~~Backup & Restore~~ | **Shipped.** |
-| ~~v2.9~~ | ~~SE# field~~ | **Shipped this session.** See Section 3 below for what's now true because of it |
-| **v2.10 — start here** | `pbs` schema widening (multiple dated entries per event+course allowed, `source` field added) + `mergePbEntry()` implementation + derived current-PB helper threaded through `buildSwimmerRows`/Hot Right Now/Bubble List/`sanitiseSwimmersData` + Hot Right Now's definition tightened to "recent improvements" | v2.9 (for a stable, `se`-inclusive swimmer schema to build against — now satisfied) |
-| v2.11 | SE PB import itself: SheetJS → block parser → SE#/name+DOB matching → per-record diff via `mergePbEntry()` → conflict review UI → apply | v2.9 + v2.10 |
+| ~~v2.9~~ | ~~SE# field~~ | **Shipped.** |
+| ~~v2.10~~ | ~~`pbs` schema widening + `mergePbEntry()`~~ | **Shipped this session.** See Section 3 below for what's now true because of it |
+| **v2.11 — start here** | SE import itself: SheetJS read → block parser (row-shape based, plan doc Section 2) → SE#/name+DOB matching → per-record diff via `mergePbEntry()` (already implemented) → conflict review UI calling `resolvePbEntryConflict()` (already implemented) → apply → summary | v2.9 + v2.10 — both now satisfied |
 
-**Why this order:** v2.10 is the riskiest piece — it touches real existing surface area across the app (`buildSwimmerRows`, Hot Right Now, Bubble List, the sanitiser). Keeping it its own session, separate from v2.11's import-specific work, makes a regression easier to bisect, and matches the discipline this handover itself follows — v2.9's docs were fully updated before this handover was written, not deferred.
-
-**Start the next session on v2.10.** It's the one genuine dependency-of-substance in the remaining roadmap — v2.11 can't be built sensibly against the old single-entry-per-event+course `pbs` shape.
+**Start the next session on v2.11.** Both of its dependencies are done — `mergePbEntry()` and `resolvePbEntryConflict()` are implemented, tested, and ready to be called; the SE# matching fields (`se` on the swimmer, `source: 'se'` as a valid PB-entry value) already exist in the schema.
 
 ---
 
-## 3. What v2.9 actually changed, and why it matters for v2.10+
+## 3. What v2.10 actually changed, and why it matters for v2.11
 
-**Feature shipped:** an optional `se` (Swim England ID / "SE #") field on the swimmer record — read from a new "Basic Data" column E in the Apps Script sync payload (now `apps_script_v2.2.3.gs`), carried through `mergeSwimmers()` as authoritative when present (same trust tier as `name`/`dob`/`gender`), with a soft warning (not a block, not a silent overwrite) if a sync brings a conflicting value; validated by `sanitiseSwimmersData()` (drops just the field on an invalid value, never the whole swimmer); and editable via a new field in Add/Edit Swimmer. Also fixed, same session: two mobile CSS bugs (DOB/Date Set field overflow in the Add/Edit Swimmer modal; iOS's auto-zoom-on-focus affecting every text field). See `known-bugs-and-fixes.md`'s "Added in v2.9" section for the full writeup.
+**Feature shipped:** `sw.pbs` now allows multiple dated entries per event+course (was effectively one). A new optional per-entry `source` field (`gala`/`se`/`manual`) defaults to `gala` for all pre-existing data at read time via `getPbSource()`. "Current PB" is derived live by a new, named, shared helper `getCurrentPbMap()` — never stored, never cached. Hot Right Now is redefined to mean "recent improvements" via `computePbImprovements()`, not every recorded swim. `mergePbEntry()` — the fully-specced, locked merge function — is implemented and tested, with no caller yet. Plus the `mergePbs()` bug fix described above.
 
 **Why this matters going forward, concretely:**
 
-- **`v2.10`'s dependency on v2.9 is now satisfied.** The swimmer schema v2.10 builds against (widening `pbs`) now includes `se` as a stable, validated, optional field — nothing about v2.10's work needs to special-case its presence or absence.
-- **The "extend the existing sanitiser, don't write a parallel one" precedent held again.** Adding `se` required exactly one change inside `sanitiseSwimmersData()` itself (plus threading a new `seDropped` count through `describeSanitiseIssues()` and its three existing callers) — Backup & Restore, sync, and manual upload all picked it up automatically with zero edits to any of those three paths. **v2.10's `source` field and widened `pbs` array should follow the exact same pattern**: extend `sanitiseSwimmersData()`'s validation, don't add a second validation path anywhere, including inside the eventual v2.11 SE-import code.
-- **The soft-warning-not-silent-overwrite pattern for `mergeSwimmers()` conflicts is now precedented once** (the SE# conflict case) — worth reusing verbatim if v2.10's `mergePbEntry()` needs a similar "the merge still applies the incoming value, but tell the coach it happened" shape for any of its own edge cases, rather than inventing a new UI paradigm.
-- **`apps_script_v2.2.3.gs` now has a genuinely unit-testable seam** (`parseBasicDataRow()`, `formatSE()`) that didn't exist before — pulled out specifically to make the column-mapping logic testable outside Apps Script. If v2.11's SE import needs any row/block-parsing logic of its own (it will — see the plan doc's Section 2 block-detection rules), the same "extract the pure function, test it directly in Node, leave the untestable `SpreadsheetApp`/`SheetJS` calls thin around it" approach is the template to reuse, not a new pattern to invent.
-- **The `probe_fixes.js`/`probe_backup_restore.js`/`probe_se_field.js` pattern (a small, dedicated, non-permanent probe for a scoped change) is now used three times** for changes that don't need `test_overview.js`'s Overview-tab focus. v2.10's scope is large enough that it should probably **both** get its own dedicated probe **and** a full `test_overview.js` run (per the original plan doc's Section 3.3 sign-off requirement) — it's the first of the four sessions where the change genuinely touches what `test_overview.js` asserts on.
-- **A jsdom-vs-`@media` limitation surfaced for the first time this session** (`probe_se_field.js`'s CSS caveat): jsdom does not evaluate `@media` conditions for `getComputedStyle()` purposes, so any future mobile-only CSS behavior needs verifying via source-text assertions against the relevant `@media` block, not computed-style assertions — noted directly in `probe_se_field.js` for reference.
+- **v2.11's core dependency is now fully satisfied, not just schema-ready.** Previous handovers described v2.10 as "the riskiest piece" because it touches real existing surface area (`buildSwimmerRows`, Hot Right Now, `sanitiseSwimmersData`) — that work is done, tested (45 dedicated probe checks + a clean `test_overview.js` run), and the function v2.11 actually needs to call (`mergePbEntry()`) already exists with its full locked behaviour, including the competition-truncation rule and the sticky-source-on-no-op property.
+- **v2.11 should call `mergePbEntry()`/`resolvePbEntryConflict()` directly — do not reimplement any part of their logic.** The identity (`event+course+date`), the three outcomes (`add`/`noop`/`conflict`), and the competition-merge rule are all already correct and already tested. v2.11's own work is the *parsing* (SheetJS, block detection, SE#/name+DOB matching) and the *UI* (a conflict-review screen, a summary), not the merge semantics themselves.
+- **The "extend the existing sanitiser, don't write a parallel one" precedent held a third time.** Adding `source` required exactly one change inside `sanitiseSwimmersData()` (plus threading a new `pbSourceDropped` count through `describeSanitiseIssues()` and its three existing callers) — Backup & Restore, sync, and manual upload all picked it up automatically, verified directly rather than assumed. **Any PB-writing code v2.11 adds must run through this same sanitiser** — see the note already in `data-schema.md` Section 1.1 and `architecture.md`'s security notes.
+- **A real bug was caught specifically because this session widened the schema for real, not just on paper.** `mergePbs()`'s pre-v2.10 behaviour (keying by event+course only) had always been slightly wrong in principle, but only became an everyday-reproducible problem once multiple entries per event+course became a normal, expected thing to have on file. Worth remembering for v2.11: **any new code path that reads or writes `sw.pbs` should be checked against a multi-entry-per-event+course scenario explicitly**, not just a single-entry one, precisely because the single-entry case can look correct while silently mishandling the general case.
+- **The `probe_fixes.js`/`probe_backup_restore.js`/`probe_se_field.js`/`probe_pbs_widening.js` pattern is now used four times.** v2.11's scope (SheetJS parsing + matching + a new conflict-review UI) likely needs both a dedicated probe of its own **and**, if it touches anything `test_overview.js` asserts on (unlikely, since SE import is a new, separate flow, not a change to Hot Right Now/Bubble List/Composition), a full suite run to confirm no regression — check this explicitly rather than assuming either way.
 
 ---
 
-## 4. Decisions already locked from the original SE-import planning session — do not re-litigate these
+## 4. Decisions already locked — do not re-litigate these
 
-Unchanged since the last handover; carried forward verbatim because v2.9 didn't touch any of this beyond the SE# field itself (which is now done, not a decision still pending).
+Unchanged since prior handovers; carried forward verbatim because v2.10 didn't touch any of this beyond implementing what it already specified.
 
-**SE report format** (from the real sample files, not screenshots):
-- Sheet has no merged cells; swimmer-header row is one cell, one line: `"Lastname, Firstname: DD/MM/YYYY  (Gender Age) SE#"` — **no category prefix**, unlike what the old plan's screenshots suggested.
-- Column A ("Rank") is always `"1"` — it's genuinely the Rank column; this is a Top-Times-only export.
-- Blank-row spacing is inconsistent *even within one swimmer's block* — block detection must be by row shape (header pattern vs. numeric-rank-plus-known-event), never blank-row position.
-- Meet names are hard-truncated at exactly 30 characters by SE's export. **A truncated SE competition value never overwrites a fuller existing one** — only used when writing a genuinely new record.
-- `P/F/T` (race stage) column — **ignored entirely**, not stored or surfaced.
+**SE report format** (from the real sample files, not screenshots) — unchanged, see `se-pb-import-and-history-plan.md` Section 2: no merged cells; swimmer-header row is one cell, one line (`"Lastname, Firstname: DD/MM/YYYY  (Gender Age) SE#"`, no category prefix); Rank column is always `"1"`; blank-row spacing is inconsistent, block detection must be by row shape; meet names hard-truncated at exactly 30 characters (**this exact truncation length is now encoded as `SE_COMPETITION_TRUNCATION_LENGTH` in `index.html`, used by `mergePbEntry()`'s competition-merge rule** — v2.11 doesn't need to re-derive or re-confirm this); `P/F/T` ignored entirely.
 
-**PB history:**
-- `sw.pbs` **keeps its field name** — only its cardinality widens (multiple dated entries per event+course allowed, was exactly one). No rename to `results`/`history` — keeps every existing export/sync shape valid with zero migration. (This includes the v2.8 backup bundle format.)
-- New per-PB-entry field: `source` (`"gala"`/`"se"`/`"manual"`). Missing `source` on existing data defaults to `"gala"` at read time — no backfill-write pass.
-- **Current PB and "was this a PB at the time" are always recomputed live, never stored/cached** — avoids staleness when a historical entry is added out of chronological order later.
-- Record identity for diffing/merging is **event + course + date** (not time) — two sources disagreeing on time for the same date is exactly what should raise a conflict, not create a duplicate record.
-- The SE report is current-best-only and **cannot backfill history in one shot** — it only ever seeds one dated point per event/course per import. Real history builds by diffing *repeated* imports over time against what's already stored. Set this expectation with the coach before v2.11 ships.
-- Gala sync's Apps Script currently collapses to fastest-per-event+course before export (`buildPayload()`) — richer gala-sourced history requires a separate future rewrite of `apps_script_v2.2.3.gs`. **Explicitly deferred**, not part of v2.10–v2.11.
-- The swim-dash-style visual "Progression" tab (charts + derived-column all-results table) — **explicitly deferred**. The data model must be correct now; the UI can follow later.
-- No visible changes to County/Regional tabs in this round.
+**PB history — now fully implemented, not just decided:**
+- `sw.pbs` keeps its field name. ✅ Done (v2.10).
+- New per-PB-entry field `source` (`gala`/`se`/`manual`), missing = `gala` at read time. ✅ Done (v2.10).
+- Current PB and "was this a PB at the time" always recomputed live, never stored. ✅ Done (v2.10) — `getCurrentPbMap()` / `computePbImprovements()`.
+- Record identity for diffing = event + course + date. ✅ Done (v2.10) — this is `mergePbEntry()`'s and the fixed `mergePbs()`'s shared identity.
+- The SE report is current-best-only and cannot backfill history in one shot — real history builds by diffing repeated imports over time. **Still true, still v2.11's constraint to communicate to the coach before it ships** — nothing about this changed by v2.10 landing.
+- Gala sync's Apps Script still collapses to fastest-per-event+course before export — richer gala-sourced history requires a separate future Apps Script rewrite. **Still explicitly deferred**, not part of v2.11.
+- The swim-dash-style visual "Progression" tab — **still explicitly deferred.**
 
-**`mergePbEntry()` — fully specified, locked, do not redesign:** see `se-pb-import-and-history-plan.md` Section 4 for the complete table. Summary: identity = event+course+date; no match → auto-add (no coach review); match+same time → no-op (source tag never silently changes); match+different time → per-record conflict, coach chooses keep-existing (no change) or use-incoming (full straight replacement of time/source/competition, respecting the truncation-preference rule).
+**`mergePbEntry()` — fully specified, locked, AND NOW IMPLEMENTED AND TESTED.** See `se-pb-import-and-history-plan.md` Section 4 for the spec (unchanged) and `architecture.md`/`known-bugs-and-fixes.md` for what's now actually built and verified. v2.11 calls it; does not reimplement it.
 
-**SE# field:** **Shipped in v2.9**, exactly to spec — see Section 3 above and `known-bugs-and-fixes.md`'s "Added in v2.9" for what was actually built.
-- Confirmed location: `"Basic Data"` tab, **column E**, header `"SE #"`. Now read by `apps_script_v2.2.3.gs`.
-- Sheet-sourced SE# is authoritative when present (same trust tier as name/dob/gender). Now implemented in `mergeSwimmers()`.
-- A Sheet-sync SE# that *conflicts* with an already-stored SE# gets a soft warning (count + names, surfaced in `startSync()`'s status message), not a silent overwrite. Now implemented.
+**SE# field:** Shipped in v2.9, unchanged by v2.10.
 
-**Backup & Restore:** **Shipped in v2.8** — see `known-bugs-and-fixes.md`'s "Added in v2.8". Confirmed this session (Section 3 above) to have needed zero changes to accommodate `se`.
+**Backup & Restore:** Shipped in v2.8. **v2.10 re-confirmed (not just assumed) that it needed zero changes** for the widened `pbs`/`source` schema — verified with a dedicated probe check.
 
 ---
 
-## 5. Things to know before touching v2.10 code
+## 5. Things to know before touching v2.11 code
 
-Carried forward from before v2.9, still true, plus what v2.9 itself adds:
-
-- **`collectRecentPbs()` is the one PB-reading path without "safe by construction"** — reads `sw.pbs` directly, bypassing `buildSwimmerRows()`'s `ALL_EVENTS`-constrained lookup. Once v2.10 widens what `pbs` can hold, this function's redefinition (the plan doc's "recent improvements" change) needs the same scrutiny the v2.6 stored-XSS fix already established for it — don't assume the new shape is safe by default. **This is now v2.10's actual scope, not a future concern** — treat it as a required part of the session, not optional polish.
-- **`saveQTToStorage()` returns true/false** — check the result if you add a new caller.
-- **`sanitiseSwimmersData()` now returns `{ clean, skipped, datesDropped, seDropped }`** (the `seDropped` field is new in v2.9) — destructure accordingly if you add a caller. This function needs updating again in v2.10, to validate the widened `pbs` array and the new `source` field, following the exact same "extend, don't duplicate" pattern used for `se`.
-- **Every `localStorage.setItem()` goes through `lsSet()`, every read through `lsGet()`** — firm convention.
-- **The Manage Data modal's status dock (`#dataModalStatusDock`) must remain the last child of `.modal-box`** — v2.9 did not touch this modal at all, so no new risk was introduced, but the rule still stands for any future session that does.
-- **`mergeSwimmers()` now returns more than the original four counts**: `seConflicts` (number), `seConflictNames` (array), and — added after UAT feedback in this same session — `matched` (number, a genuinely-unchanged matched swimmer, as distinct from `updated`). If v2.10's `mergePbEntry()` integration changes what `mergeSwimmers()`/`mergePbs()` return or how they're called, make sure `startSync()`'s and `applySwimmersUpload()`'s status-message assembly (which now read `result.seConflicts`/`result.seConflictNames`/`result.matched`) isn't broken by the refactor. **Also preserve the `swimmerFieldsChanged()` comparison's field list** (`name`/`dob`/`gender`/`squad`/`se`/`pbs`) when `pbs` widens in v2.10 — it needs to keep comparing whatever `pbs` actually looks like at that point, or every sync will start reporting false "updated" counts again.
-- **Mobile CSS**: `.form-grid-2` and `.pb-top-grid` now collapse to a single column under `@media (max-width: 500px)`, and `.form-input`/`.name-search`/`.qt-inline-input`/`.margin-input-group input`/`select` are forced to `16px` in that same block. If v2.10 or v2.11 adds any new form fields to the Add/Edit Swimmer modal or elsewhere, they'll inherit these fixes automatically as long as they use the existing classes — no new mobile-specific work should be needed for typical form fields, but a genuinely new UI pattern (e.g. v2.11's conflict-review UI, if it's a new modal or a new kind of input) should be checked against both fixes rather than assumed to inherit them.
+- **`sanitiseSwimmersData()` now returns `{ clean, skipped, datesDropped, seDropped, pbSourceDropped }`** — destructure accordingly if you add a caller (v2.11's import almost certainly will, per the plan doc's requirement that any PB-writing path run through this sanitiser).
+- **`mergePbEntry(existingPbs, incoming)` returns a NEW array** (`existingPbs` itself is never mutated) — `{ pbs, outcome, ...extra }`. For `'conflict'`, `extra` includes `existingEntry`/`incomingEntry`/`index`; pass those straight to `resolvePbEntryConflict(existingPbs, index, incoming, resolution)` once the coach has chosen `'keep'` or `'incoming'`.
+- **`getPbSource(pb)`** — `pb.source || 'gala'` — is the correct way to read a PB's source anywhere; never read `pb.source` directly if you need to handle legacy (pre-v2.10) entries correctly.
+- **`getCurrentPbMap(pbs)`** — the correct way to derive "what is this swimmer's current PB for event X, course Y" anywhere new code needs it. Do not write a new inline loop for this.
+- **`mergePbs()` is now keyed by `event|course|date`, not `event|course`** — if v2.11 needs its own bespoke merge logic anywhere (it shouldn't; use `mergePbEntry()`), remember this is the current, correct, tested key shape, not the pre-v2.10 one.
+- **Every `localStorage.setItem()` goes through `lsSet()`, every read through `lsGet()`** — firm convention, unchanged.
+- **`mergeSwimmers()`'s `swimmerFieldsChanged()` comparison** (fields: `name`/`dob`/`gender`/`squad`/`se`/`pbs`) picks up the widened `pbs` shape (including `source`) automatically, since it JSON.stringify-compares the whole array — no change was needed here, and none should be needed for v2.11 either unless the comparison's field list itself needs to grow.
+- **Mobile CSS conventions** — unchanged since v2.9; any new UI v2.11 adds (a conflict-review modal, most likely) should be checked against the existing `.form-grid-2`/`.pb-top-grid`/16px-font-on-mobile fixes rather than assumed to inherit them automatically if it's a genuinely new layout pattern.
 
 ---
 
 ## 6. Testing approach for what's coming
 
-Standing convention: extract `<script>` → `node --check` → run `test_overview.js` where relevant (i.e. when a change touches the Overview tab specifically, or — as v2.9 demonstrated — touches shared helpers `test_overview.js` also exercises) → confirm with a real rendered sample or `getComputedStyle`/DOM-state assertion, not just markup presence, **except for CSS gated behind an `@media` query, which jsdom cannot evaluate for `getComputedStyle()` purposes — use a source-text assertion against the relevant `@media` block instead (see `probe_se_field.js` for the pattern)**. For changes that don't need `test_overview.js`'s full Overview-tab focus, a small dedicated one-off probe has proven to be the right-sized tool three sessions running now — see `probe_fixes.js`, `probe_backup_restore.js`, and `probe_se_field.js` as templates. For Apps Script logic specifically that has no dependency on `SpreadsheetApp`/GAS globals, a plain Node test against the extracted pure function is both possible and now precedented — see `test_se_field.js` for the "strip the GAS-only functions, `vm.runInContext` the rest" approach.
+Standing convention, extended once more this session: extract `<script>` → `node --check` → run `test_overview.js` where relevant → confirm with real rendered/DOM-state assertions, not just markup presence → write a small dedicated probe for anything `test_overview.js` doesn't cover (now precedented four times: `probe_fixes.js`, `probe_backup_restore.js`, `probe_se_field.js`, `probe_pbs_widening.js`).
 
-**v2.10 specifically** needs its own dedicated regression pass (per the plan doc's Section 3.3 sign-off requirement) — this is the version with the most existing-surface-area risk, and should include **both** a full `test_overview.js` run **and** a dedicated probe for the new `mergePbEntry()`/schema-widening logic specifically, given the scale of what it touches (`buildSwimmerRows`, Hot Right Now, Bubble List, `sanitiseSwimmersData`). **Before starting, re-run `test_overview.js` against the current (v2.9) baseline and confirm the 2 known pre-existing failures (Open Issue #7) are still exactly those 2 and no more** — that establishes a clean starting point so any new failure introduced by v2.10's actual changes is unambiguous.
-
-**v2.11 (SE import)** needs a parser-level test against the **real sample files** (not synthetic data, already reviewed and confirmed — see plan doc Section 2) before wiring into the UI, plus a dedicated matching/conflict-detection test using synthetic swimmers with deliberately overlapping/conflicting dated PBs — mirroring how `test_overview.js`'s existing tie-break tests use synthetic fixtures rather than hoping real sample data happens to exercise every branch.
+**v2.11 specifically** needs a parser-level test against the **real sample SE report files** (already reviewed, format confirmed — see plan doc Section 2) before wiring into the UI, plus a dedicated matching/conflict-detection test using synthetic swimmers with deliberately overlapping/conflicting dated PBs, calling the already-implemented `mergePbEntry()` — mirroring the "extract the pure function, test it directly" approach `test_se_field.js` established for Apps Script logic in v2.9, and that this session's `probe_pbs_widening.js` used for `mergePbEntry()` itself.
 
 ---
 
@@ -110,14 +99,14 @@ Standing convention: extract `<script>` → `node --check` → run `test_overvie
 
 | File | Version | Notes |
 |---|---|---|
-| `index.html` | v2.9 | SE # field + two mobile CSS fixes shipped this session |
-| `apps_script_v2.2.3.gs` | v2.2.3 | SE # column read shipped this session; `apps_script_v2.2.2.gs` retained in repo history, superseded |
-| `test_se_field.js` | new, v2.9 | Plain Node test for the new Apps Script column-mapping logic, not part of the shipped project |
-| `probe_se_field.js` | new, v2.9 | One-off jsdom probe for the v2.9 feature + mobile fixes, not part of the shipped dashboard |
-| `probe_backup_restore.js` | v2.8, unchanged | One-off jsdom probe for the v2.8 feature |
-| `test_overview.js` | v2.5 | jsdom dev-time test harness for the Overview tab — unchanged since v2.5; re-run (not edited) in v2.9, surfacing the 2 pre-existing failures now tracked as Open Issue #7 |
-| `se-pb-import-and-history-plan.md` | v2, unchanged this session | Still the source of truth for v2.10–v2.11 |
-| `coach_dashboard_handover.md` | this file, rewritten this session | Updated to reflect v2.9 shipped and re-point the queue at v2.10 |
-| `architecture.md`, `data-schema.md`, `known-bugs-and-fixes.md`, `session-log.md`, `project-brief.md`, `README.md` | all v2.9, updated this session | Reflect v2.9 as shipped; nothing in them describes v2.10–v2.11 as done, since nothing is |
+| `index.html` | v2.10 | `pbs` widening, `source` field, `mergePbEntry()`, the `mergePbs()` bug fix, Hot Right Now redefinition — all shipped this session |
+| `apps_script_v2.2.3.gs` | v2.2.3 | Unchanged since v2.9 |
+| `test_overview.js` | v2.10 | Section 7's stale fixture fixed this session (Open Issue #7 resolved); zero known failures |
+| `probe_pbs_widening.js` | new, v2.10 | Dedicated jsdom probe for this session's work, 45/45 passed |
+| `user_test_script_v2.10.md` | new, v2.10 | Coach-facing manual test checklist |
+| `test_se_field.js`, `probe_se_field.js`, `probe_backup_restore.js` | v2.9/v2.8, unchanged | Prior sessions' dedicated probes |
+| `se-pb-import-and-history-plan.md` | v2, unchanged this session | Still the source of truth for v2.11 |
+| `coach_dashboard_handover.md` | this file, rewritten this session | Updated to reflect v2.10 shipped and re-point the queue at v2.11 |
+| `architecture.md`, `data-schema.md`, `known-bugs-and-fixes.md`, `session-log.md`, `project-brief.md`, `README.md` | all v2.10, updated this session | Reflect v2.10 as shipped; nothing in them describes v2.11 as done, since nothing is |
 
-Real sample SE report files (`ALL_COMPETITIVE_SHORT_COURSE`, `ALL_COMPETITIVE_LONG_COURSE`) were reviewed during the original planning conversation and their findings are captured in the plan doc — keep them (or equivalents) on hand for v2.11's parser testing. Not needed for v2.10.
+Real sample SE report files (`ALL_COMPETITIVE_SHORT_COURSE`, `ALL_COMPETITIVE_LONG_COURSE`) were reviewed in an earlier planning session and their findings are captured in the plan doc — keep them (or equivalents) on hand for v2.11's parser testing.

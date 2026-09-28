@@ -1,32 +1,12 @@
-# Coach Dashboard — Architecture (v2.9)
+# Coach Dashboard — Architecture (v2.10)
 
 ## Overview
 
-Single HTML file (`index.html`, ~3,595 lines). No build step, no dependencies beyond the CDN-free vanilla JS in the page itself — including the Overview tab's charts, which are hand-rolled SVG/CSS rather than a charting library, to preserve that self-contained architecture. All state lives in `localStorage`. Logo is embedded as a base64 data URI. Three independent data sources — Swimmers (Google Sheets sync), County QT, Regional QT (GitHub sync) — each syncable, uploadable, downloadable, and clearable from one "📤 Manage Data" modal. As of v2.8, that modal also has a fourth, additive card: a single-bundle Backup & Restore mechanism spanning all three sources at once.
+Single HTML file (`index.html`, ~3,700 lines). No build step, no dependencies beyond the CDN-free vanilla JS in the page itself. All state lives in `localStorage`. Three independent data sources — Swimmers (Google Sheets sync), County QT, Regional QT (GitHub sync) — each syncable, uploadable, downloadable, and clearable from one "📤 Manage Data" modal, plus a fourth "🗄️ Full Backup & Restore" card spanning all three at once (v2.8).
 
 The Overview tab is the default tab on page load. County/Regional/editor tabs still render lazily on first switch to each.
 
-**v2.9 in one paragraph:** the SE# field, end-to-end, per `se-pb-import-and-history-plan.md` Section 5 — nothing else from the roadmap. `apps_script_v2.2.3.gs` reads a new "Basic Data" column E, header `"SE #"`, via a newly-extracted, independently-testable `parseBasicDataRow()`, and includes an optional `se` string on each swimmer in the sync payload (bumped to `version: "2.3"`). `mergeSwimmers()` carries `se` through from an authoritative sync at the same trust tier as `name`/`dob`/`gender`, with a **soft warning** (not a silent overwrite, not a block) when an existing `se` differs from the incoming one — the Sheet's value still wins, the coach just gets told. `sanitiseSwimmersData()` validates `se` as `/^\d+$/` when present, dropping just that field (not the whole swimmer) if it's malformed. Add/Edit Swimmer gained an optional SE# field, its own row below Gender/Squad. Two unrelated mobile bugs reported alongside this work were fixed in the same session — see "Mobile fixes" below. **A coach-led manual UAT pass (using the new `user_test_script_v2.9.md`) found four further real issues, all fixed in this same session** — see "Fixes made after coach UAT" below. No changes to `pbs`, PB history, or SE import itself — those remain v2.10/v2.11. See `known-bugs-and-fixes.md`'s "Added in v2.9" and "Fixes made after the coach's manual UAT pass" sections, and `session-log.md`, for the full writeup.
-
-### Fixes made after coach UAT (same session)
-
-Beyond the SE# feature and the two mobile CSS fixes below, a manual test pass surfaced four more issues, all fixed before this version was considered done:
-
-1. **Add/Edit Swimmer no longer forces an empty PB row by default** — `showAddSwimmerModal()` and `editSwimmer()` (for a zero-PB swimmer) both used to auto-add one blank row, which `saveSwimmer()`'s per-row validation then required a time for, blocking a basic-data-only Save. Both now leave the PB list empty by default.
-2. **`startSync()`'s modal no longer auto-closes when there's a warning to read** — a new `hasNotableWarning` check (true if the status message includes a QT-data note, a sanitiser-drop note, or an SE # conflict note) gates the 3-second auto-close timer; a message with something worth reading stays open until the coach closes it manually.
-3. **`mergeSwimmers()` distinguishes a genuinely-changed swimmer from a merely-matched one** — a new `swimmerFieldsChanged()` comparison (over `name`/`dob`/`gender`/`squad`/`se`/`pbs`) means `stats.updated` now only counts real changes; an unchanged matched swimmer is tallied separately as `stats.matched`, surfaced as "N unchanged" in both `applySwimmersUpload()`'s and `startSync()`'s status messages. Fixes a full-roster re-upload/re-sync always reporting every swimmer as "updated" regardless of whether anything changed.
-4. **`showDataConflict()` scrolls its box into view** — it lives near the bottom of the Manage Data modal, and clicking a source's mid-card Upload button while scrolled elsewhere previously produced no visible change from where the coach was looking.
-
-One further request from the same UAT round — a dedicated "Swimmers" tab for basic profile data, so a PB-less swimmer doesn't require checking "Show events without PB" on a QT-comparison tab just to find them — was explicitly deferred by the coach to a new **v2.12**, not built this session. See `known-bugs-and-fixes.md` Open Issue #9.
-
-### Mobile fixes (found and fixed alongside the SE# work, same session)
-
-Two bugs reported by the coach while testing on a phone, both root-caused and fixed in `index.html`'s mobile (`@media (max-width: 500px)`) CSS block only — desktop is untouched in both cases:
-
-1. **Date of Birth / Date Set fields overflowing the Add/Edit Swimmer modal.** Both live in a 2-column CSS Grid (`.form-grid-2` for Name+DOB, `.pb-top-grid` for Event/Course/Time/Date Set). A native `<input type="date">` enforces its own minimum content width (day/month/year segments plus the calendar-icon affordance) that a 50%-wide grid column can't accommodate on a narrow phone — and CSS Grid items default to `min-width: auto`, so that intrinsic minimum forces the column (and the modal) wider than the viewport instead of letting the input shrink. **Fix, round 1:** both grids collapse to a single column under the mobile breakpoint. **Round 1 turned out to be insufficient** — coach UAT found the date input still rendering visibly wider and taller than the fields around it even single-column, because the browser's own UA styling for the date control's internal segments/icon only partially respects author width rules on several mobile browsers, and separately renders a taller minimum control height than a plain text input at the same font-size — both quirks of the native control, independent of the grid. **Fix, round 2:** `input[type="date"].form-input` gets explicit `width: 100%; max-width: 100%; min-width: 0; height: 40px; box-sizing: border-box;`, plus the WebKit/Blink internal date sub-elements' own padding is reset (`::-webkit-datetime-edit`, `::-webkit-calendar-picker-indicator`). Every other field on the same rows also got an explicit `40px` height so nothing else is the odd one out. **Not visually verified in this environment** (no real rendering engine available) — confirmed only that the correct CSS rules exist; a real-device re-test is what actually confirms this one.
-2. **Every text field zooming the page in on focus, and staying zoomed after tapping out.** This is iOS Safari's documented auto-zoom-on-focus behaviour: it zooms the whole viewport in when a focused form control's computed `font-size` is under 16px, and — because it's a page-level zoom rather than a per-input one — there's nothing that resets it on blur; the coach has to pinch-zoom back out manually. Every text input/select in this dashboard is well under 16px at its normal (desktop-tuned) size (`0.76rem`–`0.83rem`, i.e. ~11–13px), which is what triggered it on literally every field. **Fix:** a single mobile-only rule bumps `.form-input`, `.name-search`, `.qt-inline-input`, `.margin-input-group input`, and bare `select` elements to `font-size: 16px`. `.margin-input-group input` (Hot Right Now's day-cutoff, Bubble List's margin%) was also widened slightly (64px → 72px) so a 3-digit value still fits comfortably at the larger font. Scoped entirely inside the existing mobile breakpoint, so desktop's smaller, denser type is unaffected.
-
-Both verified in `probe_se_field.js` via source-text assertions against the mobile CSS block (jsdom doesn't evaluate `@media` conditions for `getComputedStyle()`, so — per the same convention `probe_fixes.js` used in v2.7 for an unverifiable-via-computed-style property — these are checked as CSS text, confirming both the presence of the fix inside the mobile block and its absence outside it).
+**v2.10 in one paragraph:** `pbs` schema widening + `mergePbEntry()`, per `se-pb-import-and-history-plan.md` Sections 3–4 — nothing else from the roadmap. A swimmer's `pbs` array may now hold multiple dated entries per event+course (was effectively one, though nothing previously enforced that — see the real bug this exposed, below), each optionally tagged with a new `source` field (`gala`/`se`/`manual`, defaulting to `gala` at read time via `getPbSource()` for anything stored before this version). `mergePbEntry()` — the locked, fully-specced merge function from the plan doc — is implemented and tested as a standalone function with no caller yet (v2.11's SE import is its intended first caller). "Current PB" is pulled out into a named, always-live, never-cached helper (`getCurrentPbMap()`) used by `buildSwimmerRows()`. Hot Right Now is redefined to mean "recent improvements" (`computePbImprovements()`), not every recorded swim. `sanitiseSwimmersData()` extends to validate the new `source` field, following the exact pattern `se` set in v2.9. **One real production bug, reported directly by the coach, was found and fixed in the same session:** `mergePbs()` (gala sync + manual-upload merge) was silently discarding multiple manually-entered PBs for the same event+course during a merge — fixed by re-keying it to the same event+course+date identity `mergePbEntry()` uses. See `known-bugs-and-fixes.md`'s "Added in v2.10" section for the full writeup.
 
 ---
 
@@ -34,197 +14,117 @@ Both verified in `probe_se_field.js` via source-text assertions against the mobi
 
 ```
 <head>
-  <style>          CSS variables, layout, component styles, mobile overrides
+  <style>          CSS variables, layout, component styles, mobile overrides — unchanged in v2.10
 </head>
 <body>
-  .header          Sticky top bar with logo and club name (tagline drops to its own row on mobile)
-  .tabs            Tab navigation — Overview / County QT / Regional QT / two Editor tabs (desktop only)
-                   Mobile: Overview takes the full first row, County+Regional pair up on row 2
-  .container
-    #tab-overview       Overview — "coach's morning briefing" (default active tab)
-    #tab-county         County QT panel
-    #tab-regional       Regional QT panel
-    #tab-county-editor  County QT Editor (desktop only)
-    #tab-regional-editor Regional QT Editor (desktop only)
-  Modals (all four role="dialog" aria-modal="true" aria-labelledby, since v2.6):
-    #dataModal        📤 Manage Data — one card per source (sync/upload/download/clear),
-                       PLUS (v2.8) a fourth "🗄️ Full Backup & Restore" card spanning all
-                       three at once; action buttons (Clear All Data / Close) precede the
-                       status/error/conflict dock in the markup (v2.7 fix — see below);
-                       the new v2.8 card sits between the Regional QT card and that button
-                       row, so the dock remains the modal's true last child
-    #syncModal        🔄 Sync from Google Sheets (token, merge mode, last-synced)
-    #settingsModal     ⚙️ Settings (Apps Script URL + token)
-    #addSwimmerModal   Add / Edit Swimmer
-  FAB speed dial     ＋ → 👤 Add Swimmer / 📤 Manage Data / ⚙️ Settings / 🌙 Theme
-                     (aria-label on every button, aria-expanded synced on the parent, since v2.6)
+  .header / .tabs / .container / Modals / FAB speed dial — all unchanged in v2.10
 <script>
-  1.  CONFIGURATION        GitHub QT sync URLs, Apps Script URL constant, ALL_EVENTS, avatar colours,
-                           STROKE_ABBR / STROKE_COLOR
-  2.  MODULE-LEVEL UTILS   STATUS_RANK, escAttr (onclick-attribute escaping),
-                           kbActivate (keyboard activation for clickable-div UI)
-  3.  DATA GLOBALS         SWIMMERS, COUNTY_QT, REGIONAL_QT, QT_META objects, parseQTFull,
-                           lsGet, lsSet (write-side counterpart to lsGet),
-                           warnStorageFailureOnce, migrateLegacyQTKey
-  4.  UTILITIES            timeToSec, secToTime, fmtDate, fmtDateShort, fmtDateTime,
-                           parseLocalDate, escHtml, initials, splitEventDistance
-  5.  AGE BRACKETS         getSeasonYear, getCountyChampsDate/getRegionalChampsDate,
-                           getCountyAgeBracket, getRegionalAgeBracket, getCurrentAge (plain
-                           calendar age, independent of QT dates, used only by Squad Composition)
-  6.  QT LOOKUP            lookupQT, calcStatus, sanitiseSwimmersData (also used by the
-                           Sheets-sync path; validates pb.event/course/date too),
-                           sanitiseQTData, describeSanitiseIssues / describeSanitiseQTIssues
-  7.  DIAGNOSTIC           diagnoseZeroRowSwimmer — why a swimmer's card doesn't render (County/Regional tabs)
-  8.  BUILD SWIMMER ROWS   buildSwimmerRows
-  9.  PROGRESS BAR         buildProgressBar
-  10. INFO BANNER          buildBanner, describeChampDates
-  11. EVENT-LEVEL STATUS   getEventBestStatuses
-  12. RENDER TAB           buildFooterNote, renderTab (shared), renderCounty, renderRegional,
-                           debounce / debouncedRenderCounty / debouncedRenderRegional
-                           (name-search input only; every other call site is unchanged)
-  13. OVERVIEW TAB         See dedicated section below — unchanged in v2.8
-  14. TAB SWITCHING        showTab, toggleCollapseAll, toggleSwimmer, updateCollapseBtnVisibility
-  15. THEME                toggleTheme, applyTheme
-  16. DATA: LOAD/SAVE      showDataModal, sanitiseSwimmersData (validates se as of v2.9),
-                           applySwimmersUpload, applyQTUpload, resolveDataConflict,
-                           downloadSwimmers, clearData, refreshStatusDockVisibility, and —
-                           since v2.8 — downloadBackupBundle, loadBackupFile,
-                           applyBackupRestore (see "Full Backup & Restore" section below)
-  17. LOCALSTORAGE GUARD   checkLocalStorageSize (alerts the coach once per session, not
-                           just console.warn)
-  18. ADD SWIMMER          showAddSwimmerModal, addPBRow — includes the SE # field (v2.9)
-  19. EDIT/DELETE SWIMMER  editSwimmer, deleteSwimmer, saveSwimmer (SE # validated here, v2.9)
-  20. QT EDITOR (SAVE/META/TABLE/ADD ROW/DOWNLOAD)  saveQTToStorage (returns
-                           success/failure), toggleMetaEdit, saveMetaEdit, updateMetaDisplay,
-                           renderQTEditor, saveQTEdit, deleteQTRow, addQTRow, saveNewQTRow,
-                           downloadQTData
-  21. FAB                  toggleFab, openFab, closeFab (aria-expanded sync),
-                           fabToggleTheme, fabShowDataModal, ...
-  22. MODAL A11Y           openModalA11y, closeModalA11y, getFocusableIn, trapModalTab
-  23. KEYBOARD              ESC handler (also handles Tab-trapping via trapModalTab)
-  24. LOGO DATA URI         const LOGO_DATA_URI (base64)
-  25. INIT                  DOMContentLoaded — logo, theme, restore last-sync display,
-                           restore Overview day-cutoff/margin% preferences, renderOverview()
-  26. GOOGLE SHEETS SYNC    startSync (sanitises before merging, checks save success, surfaces
-                           SE # conflicts as of v2.9), mergeSwimmers (carries se through
-                           authoritatively, flags conflicts — v2.9), mergePbs, showSyncModal,
-                           showSettingsModal
-  27. RETRY HELPER         fetchWithRetry — used by syncQTFromGitHub
+  1–17.  CONFIGURATION through LOCALSTORAGE GUARD — unchanged in v2.10, except:
+         - sanitiseSwimmersData() extended (validates per-PB `source`; new getPbSource(),
+           PB_SOURCES constant)
+         - buildSwimmerRows() now calls the new getCurrentPbMap() helper instead of an inline
+           loop (same logic, pulled out and documented)
+         - collectRecentPbs() now calls the new computePbImprovements() helper
+  18.  ADD SWIMMER          showAddSwimmerModal, addPBRow — unchanged
+  19.  EDIT/DELETE SWIMMER  editSwimmer, deleteSwimmer, saveSwimmer — saveSwimmer() now tags
+                            each PB entry's `source` via the new resolvePbSourceOnSave()
+  20–27. (unchanged) QT EDITOR, FAB, MODAL A11Y, KEYBOARD, LOGO, INIT
+  26.  GOOGLE SHEETS SYNC   mergeSwimmers (unchanged logic; swimmerFieldsChanged()'s pbs
+                            comparison now naturally includes source, since it JSON.stringify-
+                            compares the whole pbs array), mergePbs (RE-KEYED this session —
+                            see "Fixed in v2.10" in known-bugs-and-fixes.md), plus the new
+                            standalone mergePbEntry()/resolvePbEntryConflict()/
+                            mergeCompetitionField()/isTruncatedFragmentOf()/getCurrentPbMap()/
+                            computePbImprovements()/resolvePbSourceOnSave() functions, all
+                            defined in this same section of the file, near mergePbs()
 ```
 
 ---
 
-## Manage Data Modal — Full Backup & Restore (new in v2.8)
+## v2.10 — `pbs` Schema Widening & `mergePbEntry()`
 
-A fourth card, "🗄️ Full Backup & Restore," sits in `#dataModal` after the three existing per-source cards (Swimmers, County QT, Regional QT) and before the Clear All Data / Close button row — which itself still precedes `#dataModalStatusDock` (see the v2.7 DOM-order note below; the dock remains the modal's true last child).
+### The bug this session found (not originally scoped, but squarely in-session)
 
-### Download — `downloadBackupBundle()`
+Reported directly by the coach: a swimmer with two manually-entered PBs for the same event+course was losing **both** the moment an uploaded/synced file brought in a faster time for that event. Root cause: `mergePbs()` — shared by gala sync and manual-upload Merge — keyed its working map purely by `event|course`, with no date. Building the *local* side of that map alone silently collapsed the coach's two manual entries down to one, before the incoming file was even considered.
 
-Builds a single JSON bundle from the live in-memory globals:
+**Fix:** `mergePbs()` re-keys to `event|course|date`. Every distinct dated entry now survives a merge independently; "keep the faster time" still applies, but only when two sources genuinely describe the same dated swim (same event+course+date), not merely the same event+course. See `known-bugs-and-fixes.md` for the full writeup and the dedicated reproduction test in `probe_pbs_widening.js`.
 
-```json
-{
-  "version":    "coach-dashboard-backup-1",
-  "generated":  "2026-09-18T10:00:00.000Z",
-  "swimmers":   [ ...SWIMMERS... ],
-  "countyQt":   { "meta": { ... }, "times": [ ...COUNTY_QT... ] },
-  "regionalQt": { "meta": { ... }, "times": [ ...REGIONAL_QT... ] }
+### Schema
+
+`sw.pbs` keeps its field name; only its cardinality changes (many entries per event+course, was one). New optional per-entry field `source` (`'gala'|'se'|'manual'`), defaulting to `'gala'` at **read time** via `getPbSource(pb)` — `pb.source || 'gala'` — never backfilled with a write pass. See `data-schema.md` Section 1.1 for the full field table.
+
+### `getCurrentPbMap(pbs)` — the live "current PB" derivation
+
+```js
+function getCurrentPbMap(pbs) {
+  const pbMap = {};
+  (pbs || []).forEach(pb => {
+    const key = pb.event + '|' + pb.course;
+    const sec = timeToSec(pb.time);
+    if (!pbMap[key] || sec < pbMap[key].sec) pbMap[key] = { ...pb, sec };
+  });
+  return pbMap;
 }
 ```
+This is exactly the loop `buildSwimmerRows()` already ran inline before v2.10 — pulled out into its own named function so every current-PB consumer (`buildSwimmerRows()`, and therefore County/Regional and the Bubble List which both go through it) shares one definition. **Never stored or cached** — recomputed from the full array on every call, so an out-of-chronological-order entry (a coach backfilling an old result, or a future SE import seeding one historical point) can never leave a stale "current PB" flag behind, because there never is one to go stale.
 
-Downloaded as `coach_dashboard_backup_YYYY-MM-DD.json`, same Blob/`<a>` pattern used by every other download in the file. **Deliberately excludes `coach_SYNC_URL`/`coach_SYNC_TOKEN`** — per-browser credentials, not squad data; bundling a secret token into a shareable backup file would be a real footgun.
+### `computePbImprovements(pbs)` — Hot Right Now's redefinition
 
-### Restore — `loadBackupFile()` → `applyBackupRestore()`
+Groups dated entries by event+course, sorts each group chronologically, and walks forward tracking the best time seen so far; an entry counts as a "recent improvement" only if it beat everything strictly before it in that group. Undated entries are excluded entirely (unchanged convention). `collectRecentPbs()` now calls this instead of iterating every dated entry directly — required once `pbs` can hold non-improving history, or the feed would show every recorded swim, not just PBs.
 
-1. `loadBackupFile()` reads and parses the chosen file. A file that isn't an object, or has none of `swimmers`/`countyQt`/`regionalQt` recognisably present, is rejected immediately with an error — no confirmation is shown for a file that isn't a plausible backup at all.
-2. Whichever of the three pieces *are* present are run through the same sanitisers every other upload path uses — `sanitiseSwimmersData()` for `swimmers`, `parseQTFull()` + `sanitiseQTData()` for `countyQt`/`regionalQt` — **before** the confirmation dialog is shown, so the dialog's counts reflect what will actually be applied, not raw/possibly-dirty file counts.
-3. A `confirm()` names, per dataset, the current count → the restored count, or — for any piece **not** present in the bundle — states plainly that dataset will be left untouched. This is deliberately **Replace-only per dataset present**, not all-or-nothing: a bundle missing one piece (e.g. predates Regional QT being loaded, or a coach intentionally exported only after clearing something) still restores the pieces it does have rather than being rejected wholesale. See `known-bugs-and-fixes.md` for the reasoning behind this choice.
-4. On confirmation, `applyBackupRestore()` replaces `SWIMMERS` / `COUNTY_QT`+`COUNTY_QT_META` / `REGIONAL_QT`+`REGIONAL_QT_META` wholesale for each present piece, persists via `lsSet()`/`saveQTToStorage()` (checking each write's success, same convention as every other data-entry path), surfaces sanitiser skip/coerce counts in the final status message, then re-renders County/Regional/Overview and refreshes the modal's own counts/hints.
+`collectRecentPbs()` remains the one PB-reading path that bypasses `buildSwimmerRows()`'s `ALL_EVENTS`-constrained lookup (the same property flagged since the v2.6 stored-XSS fix) — this was explicitly re-verified for the widened schema this session, not assumed safe by inheritance; see `known-bugs-and-fixes.md`'s security-review note.
 
-**Uses the existing `confirm()` pattern** (matching `clearData()`'s existing irreversible-bulk-action pattern) rather than the inline `dataConflictBox` UI — the conflict box is built around a Replace/Merge *choice*, and Restore only ever has one path (Replace-per-present-piece), so a second UI paradigm wasn't warranted.
+### `mergePbEntry()` — locked spec, implemented, not yet called
 
-**Schema-agnostic by construction:** the bundle just snapshots/restores `SWIMMERS`/`COUNTY_QT`/`REGIONAL_QT` verbatim through their existing sanitisers — it doesn't interpret or depend on the current shape of a swimmer or PB record. This means v2.10's planned widening of the `pbs` array (multiple dated entries per event+course) requires **no changes to Backup & Restore itself** — whatever shape `sanitiseSwimmersData()` accepts at that point, the bundle already round-trips.
+```
+mergePbEntry(existingPbs, incoming) → { pbs, outcome, ...extra }
+```
+Identity: `event + course + date` (never `time`). Outcomes: `'add'` (auto-append, no review), `'noop'` (identity + time both match — nothing changes, **`source` is sticky**, never silently overwritten even if the incoming source differs), `'conflict'` (identity matches, time differs — surfaced via `existingEntry`/`incomingEntry`/`index`, resolved by a caller via `resolvePbEntryConflict(existingPbs, index, incoming, resolution)` where `resolution` is `'keep'` or `'incoming'`). Competition/venue handling on an add or an "incoming"-resolved conflict: `mergeCompetitionField()` + `isTruncatedFragmentOf()` implement the rule that a truncated (exactly-30-character, matching SE's confirmed export behaviour) fragment of a fuller existing competition string never overwrites it.
+
+**Has no caller in this codebase yet.** v2.11's SE import is the function's intended first caller, per the plan doc's phased build order — v2.10's job was to implement and thoroughly test it ahead of that caller, against an already-locked spec, not to wire it into any existing flow.
+
+### `resolvePbSourceOnSave()` — tagging PBs entered through Add/Edit Swimmer
+
+`saveSwimmer()` rebuilds its whole `pbs` array from the modal's rows on every save (unchanged since before v2.10). To avoid silently reclassifying an untouched gala-synced PB as "manual" just because the form re-saved it, each resulting entry's `source` is resolved against what the swimmer already had on file (matched by event+course+date+time, same identity concept as `mergePbEntry()`): an unchanged match keeps its original source; anything new or genuinely edited is tagged `'manual'`.
 
 ---
 
 ## Overview Tab
 
-Unchanged in v2.8. A squad-wide, **unfiltered** "coach's morning briefing" — no Squad/Gender filter bar of its own, deliberately, since it's meant to be a single glance at the whole squad rather than another filterable list like County/Regional. Three sections, in this order: **Squad Composition** (top), **Hot Right Now**, **The Bubble List**.
+Unchanged in v2.10 except where noted above (Hot Right Now's redefinition). Three sections, in this order: Squad Composition, Hot Right Now, The Bubble List. See prior versions of this file for the full shared-building-blocks writeup (`getOverviewEligibleSwimmers()`, `hiddenReasonDetail()`, `renderPersonCard()`, the entry-row design, section-level card caps) — none of that changed this session.
 
-### Shared building blocks
+### Section 2 — Hot Right Now (redefinition detail)
 
-- **`getOverviewEligibleSwimmers()`** — the default exclusion gate (no `hidden`, not `'Former Swimmer'`) used by every section except where a section has its own explicit override (see Bubble List below).
-- **`hiddenReasonDetail(sw)`** — short label + full tooltip for a swimmer excluded by a default gate (`Hidden` / `Former`), used when a section chooses to include them anyway.
-- **`splitEventDistance(event)`** + **`STROKE_ABBR`** + **`STROKE_COLOR`** — splits an `ALL_EVENTS` string ("50 Free") into `{distance, stroke}`; maps stroke to a 2–3 letter mobile abbreviation (via the dashboard's existing `.col-full`/`.col-abbr` responsive-text pattern) and to a left-accent-bar color, reusing hex values already established elsewhere in the app (squad/gender colors) rather than a new palette.
-- **`renderPersonCard(name, idx, entries, renderEntry, hideReason, expandedSet, toggleFnName)`** — the shared per-swimmer card used by both Hot Right Now and The Bubble List. Shows only `entries[0]` by default (the caller is responsible for pre-sorting entries so the most relevant one is first); a `▾ +N more` button reveals the rest via the passed-in `expandedSet` (a `Set` of expanded swimmer names) and `toggleFnName`. Cards get an `.expanded` class (light-blue background tint, `--accent`-tinted border) while open.
-- **Per-entry two-column row** (`.ov-entry-stat`): a small muted "context" block on the left (what was swum), a grouped "result" block on the right (a bold hero stat with a smaller caption directly beneath it). A colored left accent bar (via `STROKE_COLOR`) ties the two columns together visually. The course badge inside this block (`e.course`) is escaped via `escHtml()` in both Hot Right Now and Bubble List — in Hot Right Now this closed a real stored-XSS gap found in v2.6; in Bubble List it was already safe by construction but is kept consistent with the rest of the file.
-- **Section-level card cap**: both Hot Right Now and The Bubble List cap at `HOT_CARD_CAP`/`BUBBLE_CARD_CAP` (10 each — 2 full rows of 5 on desktop). A `hotShowAll`/`bubbleShowAll` boolean (independent of the per-card expand state) plus `toggleHotShowAll()`/`toggleBubbleShowAll()` let a "▾ Show all" / "▴ Show fewer" link on the capped-count note reveal or re-collapse the full list.
-
-### Section 1 — Squad Composition
-
-Three matching interactive pie/donut cards (`renderCompChart(chartId, title, items)`, shared by all three): **By Gender**, **By Squad**, **By Age**. Each card's legend sits to the right of its chart and is clickable — `toggleCompChartKey(chartId, key)` toggles a key in/out of `compChartExcluded[chartId]` (a per-chart `Set`, session-only), and the remaining slices' percentages recompute against whatever's still visible (not the original grand total), with the center total updating to match. A chart with more than 6 legend items (in practice, Age) automatically gets a 2-column legend (`.multi-col`) instead of a scrollable single column.
-
-Legend items carry `role="button" tabindex="0" aria-pressed` and respond to Enter/Space via the shared `kbActivate()` handler.
-
-Age is bucketed by **plain calendar age today** (`getCurrentAge`), not the County/Regional QT age bracket — those only exist once QT metadata (championship dates) is loaded and differ from each other, which would make this section unusable with no QT data loaded at all.
-
-A small transparency note (`renderOverviewExclusionNote`) beneath Composition states how many Former/hidden swimmers aren't counted above.
-
-### Section 2 — Hot Right Now
-
-`collectRecentPbs(limit, cutoffDate)` → `groupRecentPbsBySwimmer()` → `renderHotList()`. PBs with no recorded `date` are excluded (undated entries can't be placed in a chronological feed). A configurable day cutoff (`#hotCutoffDays`, default 30 — `getHotCutoffDays()`/`getHotCutoffDate()`) filters the pool before grouping; the empty state distinguishes "nothing recorded, ever" from "nothing in this particular window" (the latter nudges the coach to widen the window). This cutoff value is persisted to `localStorage` (`coach_HOT_CUTOFF_DAYS`) and restored on page load, if within its valid range.
-
-Ordering: most-recent-PB-date first, then **most PBs on/around that date** (not name) as the tiebreak — a plain date-only sort degenerates to alphabetical whenever several swimmers share a gala date, which is the normal case, not the exception.
-
-The raw pool size before grouping is capped at `HOT_RAW_POOL_CAP` (documented in v2.6 — was a bare `200` inline before; same value, now with a comment flagging it as a real, if unlikely, silent-truncation point for a very large/long-history squad).
-
-**Security note (still relevant):** `collectRecentPbs()` reads `sw.pbs` **directly**, not through `buildSwimmerRows()`'s `ALL_EVENTS`/`'S'|'L'`-constrained lookup path — meaning, unlike County/Regional/Bubble List, this section is not safe-by-construction against a bad `pb.event`/`pb.course` value. A real stored-XSS vulnerability was found and fixed here in v2.6 (unescaped `pb.course` in a `class` attribute) — see `known-bugs-and-fixes.md`. Any future change to this function should keep in mind that it's the one place in the app that doesn't get the "safe by construction" property for free. **This is directly relevant to the planned SE PB import (v2.11 — see `se-pb-import-and-history-plan.md`)** — whatever code eventually writes SE-sourced PBs into `sw.pbs` must produce data that already satisfies `sanitiseSwimmersData()`'s existing `pb.event`/`pb.course`/`pb.date` checks, or extend them, rather than assuming a new import path is automatically safe.
+`collectRecentPbs(limit, cutoffDate)` now filters through `computePbImprovements()` before applying the day-cutoff, rather than reading every dated PB directly. Ordering (most-recent-improvement-date first, then most-improvements-on-that-date as tiebreak) is unchanged — it's the same sort over a now-pre-filtered list.
 
 ### Section 3 — The Bubble List
 
-`buildBubbleList(marginPercent, includeHidden)` → `groupBubbleEntriesBySwimmer()` → `renderBubbleList()`. Swimmers with a real, recorded PB within a configurable `%` margin (`#bubbleMargin`, default 5) of a County or Regional QT they haven't yet hit (`status` is `Consideration` or `Outside`, `gapQ > 0`). An "Include hidden / Former Swimmers" checkbox (`#bubbleIncludeHidden`) overrides `getOverviewEligibleSwimmers()` with the full `SWIMMERS` array when checked, tagging each included swimmer with `hiddenReasonDetail()`. The margin% value is persisted to `localStorage` (`coach_BUBBLE_MARGIN`) and restored on page load, if within its valid range.
-
-Sort: smallest gap % first (a swimmer's own entries are naturally gap-ascending as a consequence of `buildBubbleList`'s global sort — see inline comment), tiebroken by most bubble opportunities (not name).
-
-Displayed stat: the actual **time difference in seconds and the QT cutoff itself** ("0.12s off" / "QT 2:24.00"). No leading `+` sign. Meta line is two rows — championship type (County/Regional) on top, event + course underneath.
-
-Unlike Hot Right Now, this section's `e.event`/`e.course` originate from `buildSwimmerRows()`'s constrained lookup and are safe by construction — the `escHtml(e.course)` here is consistency/defense-in-depth, not a fix for an exploitable path.
+Unchanged in v2.10. `buildBubbleList()` goes through `buildSwimmerRows()`, which now calls `getCurrentPbMap()` — same result as before for any swimmer with at most one entry per event+course, and now also correctly picks the genuinely fastest entry for a swimmer with several.
 
 ---
 
-## CSS Variables
+## Security Notes
 
-Unchanged in v2.8 — the new Backup & Restore card reuses the existing `.data-card`/`.data-card-head`/`.data-card-title`/`.data-card-row`/`.fbtn` classes verbatim, no new CSS was needed.
+### The v2.6 stored-XSS finding, and its v2.10 re-verification
 
-Two complete variable sets — light (`:root`) and dark (`body.dark`):
+Unchanged root cause and fix from v2.6 (see prior versions of this file for the full history) — `collectRecentPbs()` bypasses `buildSwimmerRows()`'s constrained lookup, so its safety comes entirely from `sanitiseSwimmersData()`'s validation at the point of entry, not from render-time escaping alone (though that's also present, as defense-in-depth). **v2.10 re-verified this explicitly for the widened schema**: the sanitiser's per-entry validation (`event`/`course`/`date`) never assumed "at most one entry per event+course," so widening cardinality doesn't change what validation each entry receives — confirmed with a synthetic swimmer holding a malicious `course` value planted in the *middle* of three same-event+course entries; the sanitiser drops exactly that one entry, keeps the other two. The new `source` field is validated as a plain enum-membership check, carrying no injection surface of its own.
 
-```css
---bg, --surface, --surface2, --surface3   Background layers
---accent (#1a56c4), --accent2 (#0ea5d4)   Blue / teal accent
---gold (#d97706)                           PB times, amber highlights, warning-tier diagnostics
---green, --red                             Status colours
---text, --text2, --text3                   Text hierarchy
---border                                   Borders / dividers
---tab-active                               Active tab background
---header-start, --header-end               Header gradient
-```
+### Validation, symmetric across upload, sync, AND restore (extended in v2.10)
 
-The Overview tab's stroke/squad/gender accent colors (`STROKE_COLOR`, `SQUAD_COLORS`, `GENDER_COLORS`) are plain JS hex constants, not CSS variables — deliberately reusing values already established elsewhere (squad badges, gender pills) rather than introducing a parallel palette.
+- `sanitiseSwimmersData()` is called from `startSync()`, `loadSwimmersFile()`/`applySwimmersUpload()`, and `loadBackupFile()`/`applyBackupRestore()`. As of v2.10 it also validates per-PB `source` (drops just that field, keeps the PB, if present but not `gala`/`se`/`manual`) — every one of those callers gets the new check automatically, with zero changes to any of them, following the exact pattern `se` established in v2.9.
+- **v2.10 is the second real proof of the v2.8 design bet**: Backup & Restore needed zero code changes for the widened schema, and this was verified directly (a dedicated probe check), not assumed just because it worked for `se` in v2.9.
 
-`[role="button"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }` — a single global rule giving every keyboard-accessible "clickable div" (swimmer headers, stat cards, chart legend items) a clear, on-brand focus ring instead of relying on the browser's inconsistent default outline.
+### Write-side localStorage protection (unchanged since v2.6)
 
-### Fixed-height pill pattern (`.squad-badge`, `.gender-pill-mobile`) — rewritten in v2.7, unchanged in v2.8
+Unchanged in v2.10.
 
-Both share the same layout strategy: an explicit `height: 19px` plus `display: inline-flex; align-items: center; justify-content: center`, rather than the v2.6 approach of matching `line-height` between the two. Paired with the ♂/♀ Unicode text-presentation variation selector (U+FE0E) on the swimmer-meta glyphs. See `known-bugs-and-fixes.md`'s "Fixed in v2.7" section for the full root-cause writeup.
+### Apps Script hardening (unchanged since v2.6)
 
----
+Unchanged in v2.10 — no Apps Script edits this session.
 
-## Responsive Breakpoints
+### Accessibility (unchanged since v2.6)
 
-| Breakpoint | Behaviour |
-|---|---|
-| ≤500 px (mobile) | Header tagline drops to its own row; Overview tab takes the full first row, County/Regional pair up on row 2; tabs wrap; stat cards compact; filter bar becomes grid; progress column hidden; gender pill inline-flex; squad badges match its height exactly; QT editor tabs hidden; Overview card grids go 2-up; stroke names abbreviate (FR/BK/BR/FLY/IM); the course badge inside Overview entry rows shrinks correctly; Manage Data's status/error/conflict messages dock sticky to the bottom of the modal once they have something to show, with that dock still the true last child of the modal (v2.7 fix, unaffected by v2.8's new card since it was inserted above the button row, not below the dock) |
-| >500 px (desktop) | Full layout; QT editor tabs visible; Overview card grids go 5-up; Manage Data status area behaves exactly as before (no sticky dock — never needed one, taller viewport) |
+Unchanged in v2.10 — no new UI surfaces were added (mergePbEntry has no UI yet).
 
 ---
 
@@ -232,162 +132,29 @@ Both share the same layout strategy: an explicit `height: 19px` plus `display: i
 
 ```
 localStorage
-  ↓ parseQTFull() / lsGet()  (+ migrateLegacyQTKey() one-time migration)
-COUNTY_QT (array) + COUNTY_QT_META (object)
-REGIONAL_QT (array) + REGIONAL_QT_META (object)
-SWIMMERS (array)
   ↓
-renderOverview()                        — called on load and after every data-changing action
-  → renderComposition()                 — 3 pie/donut cards, session-only toggle state
-  → renderHotList()                     — card grid, session-only expand + show-all state
-                                           (day-cutoff persisted)
-  → renderBubbleList()                  — card grid, session-only expand + show-all state
-                                           (margin% persisted)
-  → renderOverviewExclusionNote()
+SWIMMERS (array, pbs now possibly multi-entry-per-event+course, each entry optionally source-tagged)
+  ↓
+renderOverview() → renderHotList() → collectRecentPbs() → computePbImprovements()  (v2.10)
+                  → renderBubbleList() → buildBubbleList() → buildSwimmerRows() → getCurrentPbMap()  (v2.10)
+renderTab(prefix) → buildSwimmerRows() → getCurrentPbMap()  (v2.10)
 
-renderTab(prefix)                       — County/Regional
-  → visibleSwimmers = SWIMMERS filtered by hidden/Former-gate/squad/gender/age/name
-  → buildSwimmerRows(swimmer, qtData, ageFn, ...) per visible swimmer
-      → lookupQT → calcStatus
-      → if zero rows: diagnoseZeroRowSwimmer()
-  → getEventBestStatuses(rows)
-  → renderStatCards / swimmer card template / buildProgressBar
-  → buildFooterNote(...)
-
-Data-entry paths, all validated + write-checked:
+Data-entry paths, all validated + write-checked (unchanged call sites, extended validation):
   applySwimmersUpload / startSync  → sanitiseSwimmersData()  → lsSet('coach_SWIMMERS', ...)
-  applyQTUpload / syncQTFromGitHub → sanitiseQTData()        → saveQTToStorage() → lsSet(...)
-  loadBackupFile → applyBackupRestore()  → per present piece: sanitiseSwimmersData() /
-                                            sanitiseQTData() → lsSet(...) / saveQTToStorage()
-                                            (v2.8 — reuses the same two sanitisers above,
-                                            just fans one file out to up to three targets)
+  loadBackupFile → applyBackupRestore()  → sanitiseSwimmersData()  → lsSet(...)
+  saveSwimmer() → resolvePbSourceOnSave() per PB row → lsSet('coach_SWIMMERS', ...)  (v2.10)
+
+mergeSwimmers() → mergePbs()  (RE-KEYED, v2.10 bug fix — see known-bugs-and-fixes.md)
+
+mergePbEntry() / resolvePbEntryConflict()  — standalone, v2.10, no caller yet (v2.11's job)
 ```
-
-### QT Storage
-
-```
-coach_COUNTY_QT_FULL   = { meta: {title, dateFrom, dateTo}, times: [...] }
-coach_REGIONAL_QT_FULL = { meta: {title, dateFrom, dateTo}, times: [...] }
-```
-
-`parseQTFull()` accepts both this format and the legacy plain-array format. The legacy-format keys (`coach_COUNTY_QT`/`coach_REGIONAL_QT`) are no longer read as a permanent fallback — `migrateLegacyQTKey()` runs once at startup and, if only the legacy key has data, writes it into the new key and deletes the legacy key. No stored-data shape changes in v2.8.
-
----
-
-## Key Business Logic
-
-### Age bracket calculation
-
-Championship dates are **not hardcoded** — `getCountyChampsDate()`/`getRegionalChampsDate()` read `QT_META.dateTo`, falling back to `dateFrom`, returning `''` if neither is set. Used by County/Regional tabs and their age brackets. The Overview tab's Squad Composition deliberately does **not** use this — see "Section 1" above.
-
-### Status precedence
-
-`STATUS_RANK`: `Qualified(0) > Consideration(1) > Outside(2) > No PB(3) > No Data(4)`.
-
-### Inverted QT data guard
-
-`calcStatus` and `buildProgressBar` normalise `qualify`/`consider` via `Math.min`/`Math.max`.
-
-### "Not shown" diagnostic (County/Regional tabs only)
-
-`diagnoseZeroRowSwimmer`/`buildFooterNote`. Not reused by the Overview tab, which has its own simpler exclusion-note pattern (see Section 1).
-
----
-
-## Security Notes
-
-### The v2.6 stored-XSS finding, in full (unchanged this session, restated for context)
-
-Hot Right Now's `collectRecentPbs()` reads `sw.pbs` directly rather than going through `buildSwimmerRows()`'s `ALL_EVENTS`/`'S'|'L'`-constrained lookup path — the path every other tab uses, which makes whatever's in `r.event`/`r.course` safe by construction regardless of the raw data. Hot Right Now had no equivalent guarantee, and rendered `e.course` **completely unescaped** inside `class="badge ${e.course}"`. At the same time, `sanitiseSwimmersData()` validated `pb.time` but not `pb.event`/`pb.course` at all. A manually-uploaded swimmers file (or a compromised/malformed Google Sheet row) with a crafted `course` value like `"><img src=x onerror="...">` could break out of that attribute — a genuine injection point on the default landing tab.
-
-**Fixed at two layers:**
-1. **Root cause** — `sanitiseSwimmersData()` now validates `pb.event` against `ALL_EVENTS` and `pb.course` against `'S'`/`'L'`, dropping the PB entirely if either is invalid.
-2. **Defense-in-depth** — both occurrences of `e.course` (Hot Right Now and, for consistency, Bubble List) are wrapped in `escHtml()` at render time, so even a future code path that bypassed the sanitiser wouldn't be exploitable.
-
-**Forward-looking note:** the planned SE PB report import (v2.11) will introduce a *new* code path that writes into `sw.pbs`. Whatever that code turns out to be, it must run its parsed rows through `sanitiseSwimmersData()` (or an equivalent enforcing the same constraints) before persisting — the safety property here comes from validation at the point of entry, not from where the data happened to originate. **The v2.8 Restore path already follows this rule** — it runs the bundle's `swimmers` array through the exact same `sanitiseSwimmersData()` call, not a bespoke restore-specific path.
-
-### Escaping conventions (unchanged)
-
-- **`escAttr()`** — double-layer escape (JS-string then HTML-attribute) for values embedded in `onclick="fn('${value}')"`.
-- **`escHtml()`** — plain HTML text/attribute escaping for everything else.
-- Rendering-side escaping remains the actual security boundary for anything that reaches the DOM — validation closes data-quality gaps and, in the Hot Right Now case above, closed an actual injection point at its source too.
-
-### Validation, symmetric across upload, sync, AND restore (extended in v2.8, v2.9)
-
-- `sanitiseSwimmersData()` is called from `startSync()`, `loadSwimmersFile()`/`applySwimmersUpload()`, and `loadBackupFile()`/`applyBackupRestore()` (since v2.8). As of v2.9 it also validates `se` (drops just that field, keeps the swimmer, if present but not `/^\d+$/`) — so every one of those callers gets the new check automatically, with zero changes to any of them.
-- `sanitiseQTData()` validates `gender`/`course`/`event`/`age`/`qualify`/`consider`, used by `applyQTUpload()`, `syncQTFromGitHub()`, and — since v2.8 — the County/Regional pieces of a restored backup bundle. Untouched in v2.9.
-- No new sanitiser was written for the backup bundle itself — it's just JSON containing the same three shapes every other path already validates, so the existing two sanitisers were reused directly rather than duplicated. **v2.9 is the first real proof of the design bet made in the v2.8 handover**: adding `se` required exactly one change (inside `sanitiseSwimmersData()` itself), and Backup & Restore picked it up automatically with zero edits to `downloadBackupBundle()`/`loadBackupFile()`/`applyBackupRestore()`.
-
-### Write-side localStorage protection (unchanged since v2.6)
-
-Every `localStorage.setItem()` call goes through `lsSet()`; every call site checks its return value, including the three new `applyBackupRestore()` write sites in v2.8. Where a dedicated status UI exists, failure is reported there; otherwise `warnStorageFailureOnce()` alerts the coach once per page load.
-
-### Apps Script hardening (unchanged since v2.6)
-
-`safeCompare()` for the token check; `setToken()` guarded against accidental overwrite. See `apps_script_v2.2.2.gs`.
-
-### Accessibility (unchanged since v2.6)
-
-Viewport allows pinch-zoom; every mouse-only "clickable div" has `role="button" tabindex="0"` and responds to Enter/Space via `kbActivate(event)`; all four modals have `role="dialog" aria-modal="true" aria-labelledby="<id>"` with focus trap/restore (`openModalA11y`/`closeModalA11y`/`trapModalTab`/`getFocusableIn`); FAB buttons have `aria-label` and a synced `aria-expanded`. The new Backup & Restore card's controls (file input, two buttons) participate in the modal's existing focus trap automatically — no new a11y wiring was needed since they're plain `<input>`/`<button>` elements, not custom clickable-divs.
-
----
-
-## Manage Data Modal — Mobile Status Dock (v2.6, DOM order corrected in v2.7, verified intact through v2.8)
-
-**v2.6 background:** on mobile, `dataStatus`/`dataError`/`dataConflictBox` sat in normal document flow below three data-cards, so an upload-triggered merge conflict or sync error could go completely unnoticed unless the coach scrolled down afterward. **Fix (v2.6):** the three elements were wrapped in `#dataModalStatusDock`. `refreshStatusDockVisibility()` — called from `setDataStatus()`, `clearDataStatus()`, `setDataError()`, `showDataConflict()`, and `cancelDataConflict()` — toggles a `dock-visible` class on the wrapper based on whether any of the three is actually showing. Only when that class is present does the mobile-only CSS make the dock `position: sticky; bottom: -20px; margin: 10px -20px -20px; ...` — bleeding it flush to the modal's own edges.
-
-**The v2.7 bug and fix:** the dock's negative bottom margin implicitly assumed it was the modal's last element; the Clear All Data / Close row previously followed it in the markup, so the negative margin pulled that row up underneath the dock's own painted area. Fixed by reordering the markup — the button row now precedes the dock, which is the modal's true last child.
-
-**v2.8 risk and how it was avoided:** adding a fourth card to this exact modal is precisely the kind of change that could reintroduce the v2.7 bug by accident (e.g. appending the new card after the button row instead of before it). The new "🗄️ Full Backup & Restore" card was inserted **between the Regional QT card and the button row** — i.e. still fully before the dock — and this was explicitly verified with a jsdom probe asserting `modalBox.lastElementChild === statusDock` and that the button row precedes the dock in document order, the same two assertions the v2.7 probe used. See `session-log.md` for the probe details.
-
-Desktop CSS is completely untouched throughout (no sticky dock there — never needed one, taller viewport).
-
----
-
-## localStorage Key Map
-
-| Key | Format | Written by | Notes |
-|---|---|---|---|
-| `coach_SWIMMERS` | JSON array | startSync, applySwimmersUpload, saveSwimmer, deleteSwimmer, clearData, **applyBackupRestore (v2.8)** | User-authoritative. Every write goes through `lsSet()` and its result is checked |
-| `coach_COUNTY_QT_FULL` | `{meta,times}` JSON | saveQTToStorage (called from applyQTUpload, syncQTFromGitHub, and **applyBackupRestore, v2.8**) | `saveQTToStorage()` returns success/failure |
-| `coach_REGIONAL_QT_FULL` | `{meta,times}` JSON | saveQTToStorage (same callers as above) | Same as above |
-| `coach_COUNTY_QT` / `coach_REGIONAL_QT` | Plain array | *(legacy)* | `migrateLegacyQTKey()` completes the migration on next load instead of reading this forever |
-| `coach_theme` | `'light'`/`'dark'` | toggleTheme | |
-| `coach_SYNC_URL` / `coach_SYNC_TOKEN` | string | saveSettings, startSync | Shared by all coaches — not per-coach auth (accepted trade-off, see `project-brief.md`). **Deliberately excluded from the v2.8 backup bundle** — never read or written by `downloadBackupBundle()`/`applyBackupRestore()` |
-| `coach_SHEETS_LAST_SYNC` | ISO timestamp | startSync | |
-| `coach_COUNTY_QT_LAST_SYNC` / `coach_REGIONAL_QT_LAST_SYNC` | ISO timestamp | syncQTFromGitHub | |
-| `coach_HOT_CUTOFF_DAYS` | string (integer) | Hot Right Now's cutoff input | Restored on load if in range 1–365 |
-| `coach_BUBBLE_MARGIN` | string (float) | Bubble List's margin input | Restored on load if in range 0.1–20 |
-
-**No new localStorage key was introduced by v2.8** — a restored backup is applied straight onto the same three existing keys above; the bundle file itself is never persisted anywhere, only read once at restore time.
-
-Everything else about the Overview tab's session state (chart-toggle exclusions, per-card expand/collapse, show-all/fewer) remains intentionally session-only — matching how `collapseAllState` already behaves for County/Regional.
-
-**Shipped in v2.9:** the `se` field (`SE#`) on the swimmer record, exactly as planned — no new localStorage key was needed, it lives inside the existing `coach_SWIMMERS` array entries. **Still not yet added, planned:** the per-PB `source` field (`gala`/`se`/`manual`) and the `pbs` array widening — see `se-pb-import-and-history-plan.md`, queued as v2.10. **v2.8's Backup & Restore needed zero changes for the `se` field to land** — confirmed this session; see the note under "Manage Data Modal — Full Backup & Restore" above and the "Validation" section's v2.9 note.
-
----
-
-## FAB Speed Dial
-
-👤 Add Swimmer · 📤 Manage Data · ⚙️ Settings · 🌙/☀️ Theme. Every button has `aria-label`; the parent's `aria-expanded` tracks open/closed state. Unchanged in v2.8 — Backup & Restore lives inside the existing 📤 Manage Data modal, not as a new FAB entry.
-
----
-
-## Retry Logic
-
-`fetchWithRetry(url, options, maxAttempts, onRetry)` — used only by `syncQTFromGitHub()`. Retries network-level failures (fetch throwing, e.g. briefly offline) and HTTP 5xx responses with a short linear backoff (`600ms × attempt`), up to `maxAttempts` total tries; a 4xx response (e.g. a renamed/missing file) is returned immediately without retrying, since that's a configuration problem retrying won't fix. `onRetry(attempt, maxAttempts)` lets the caller update its status message between attempts ("retry 1/2", etc). Does not cover genuinely extended offline periods — see `known-bugs-and-fixes.md` Open Issue #4. **Not used by Backup & Restore** — restore is a local file read (`FileReader`/`readJsonFile()`), not a network fetch, so there's nothing to retry.
 
 ---
 
 ## Testing
 
-`test_overview.js` (not part of the shipped dashboard — a dev-time harness) runs the real extracted `<script>` block under jsdom, seeded with the actual project sample data files (`swimmers_pb.json`, `county_qt.json`, `regional_qt.json`). ~40+ checks covering: default tab state, tab-switch round-trips, card grouping, expand/collapse, show-all/fewer, chart-toggle math, tie-break sort logic, the mobile digit-truncation fix, and an XSS probe. **Re-run in v2.9** (this session touched shared helpers — `sanitiseSwimmersData()`, `mergeSwimmers()` — that `test_overview.js` also exercises, and touched mobile CSS globally, so a full run was warranted even though the Overview tab itself wasn't the target of the change). Result: **2 pre-existing failures** ("hidden swimmer appears in bubble list when toggle is on", "included hidden swimmer is tagged with a hideReason") — confirmed present and identical on the unmodified v2.8 baseline before any v2.9 edits were made, so this is a latent bug from an earlier session, not something v2.9 introduced. Flagged as a new Open Issue in `known-bugs-and-fixes.md` rather than fixed here, since it's outside this session's SE#-only scope. Every other check passed.
+`test_overview.js` — Section 7's stale fixture (`sw_bubble_hidden_test`) rebuilt this session to compute its dob/QT relationship dynamically, the same way Section 12's tie-break test already did, rather than a hardcoded value that "aged into" already-qualified status as real time passed (Open Issue #7, now fixed). Re-run against both the unmodified v2.9 baseline and the finished v2.10 build: **zero failures on either**, confirming the fixture rewrite alone was the complete fix and this session's actual code changes introduced no Overview-tab regression.
 
-**v2.8 used a dedicated, separate probe** (`probe_backup_restore.js`, not added to the permanent suite — following the same convention `probe_fixes.js` established in v2.7) covering: the new card renders additively alongside the three existing ones; the v2.7 DOM-order property (`modalBox.lastElementChild === statusDock`, button row precedes dock) still holds with the new card in place; the downloaded bundle has the correct shape and genuinely excludes the sync URL/token; a full restore replaces all three datasets with confirmed before→after counts and persists correctly; a **partial** bundle (one piece missing entirely) leaves that piece completely untouched while still replacing the pieces that were present; and a file with none of the three recognisable pieces is rejected with no confirmation shown at all. 32/32 checks passed.
+`probe_pbs_widening.js` (new, v2.10, not part of the shipped dashboard) — 45 checks, per the plan doc's Section 3.3 sign-off requirement (this is the first of the four SE-import-roadmap sessions where the change genuinely touches what `test_overview.js` asserts on, so both a full suite run and a dedicated probe were required). Covers everything in this document's "v2.10" section above, plus the `mergePbs()` bug-fix reproduction and the Backup & Restore compatibility verification. All 45 passed. `node --check` clean throughout.
 
-**v2.9 used the same dedicated-probe pattern**, split across two files matching the two environments involved:
-- `test_se_field.js` — a plain Node test (no jsdom needed) against `apps_script_v2.2.3.gs`'s new `parseBasicDataRow()`/`formatSE()`. Loads the `.gs` file's source text into a Node `vm` context with the GAS-only functions (`doGet`, `buildPayload`, `buildOutput`, `testRun`, `setToken`, `safeCompare`) stripped out, since those call `SpreadsheetApp`/`PropertiesService`/`ContentService` and can't run outside Apps Script. This is a deliberate scope boundary, not a gap: `buildPayload()`'s own Sheet-reading plumbing genuinely can't be unit-tested in this environment, but the actual risk in this change — a wrong column index, a header/data shape mismatch, a coach's blank-cell edge case — lives entirely inside the pure function that was pulled out specifically so it *could* be tested this way. 15/15 checks passed: correct column index (E = 4), normal row with an SE#, blank SE# cell (never becomes an empty string), a row shorter than 5 columns (older Sheet without the new column yet), a numeric (not string) Sheets cell, whitespace-trimming, and confirmation that SE# never rescues an otherwise-invalid row (missing dob still rejects the row outright).
-- `probe_se_field.js` — a jsdom probe against `index.html` covering: the SE# field renders as its own third row (after, not inside, the Gender/Squad grid); `showAddSwimmerModal()` clears it, `editSwimmer()` populates it; `saveSwimmer()` rejects a non-digit value with a visible error and accepts a valid one; `sanitiseSwimmersData()` drops an invalid `se` without rejecting the swimmer, and reports it via `seDropped`/`describeSanitiseIssues()`; `mergeSwimmers()` carries `se` through unchanged when it matches, adds it fresh when the local swimmer had none, flags-but-still-applies a genuine conflict (Sheet wins), and never touches `se` at all on a non-authoritative (manual-upload) merge. Also includes source-text checks (see the CSS caveat below) for both mobile fixes. 24/24 checks passed.
-- **CSS media-query caveat, noted directly in `probe_se_field.js`:** jsdom has no real layout engine and doesn't evaluate `@media` conditions against a simulated viewport for `getComputedStyle()` purposes, so the two mobile CSS fixes (see "Mobile fixes" above) couldn't be verified the way v2.7's non-media-query `getComputedStyle` assertions were. Verified instead as source-text checks against the mobile CSS block specifically — the same fallback v2.7's probe used for its own unverifiable-via-computed-style property (the U+FE0E presentation-selector check).
-
-**Reminder for any future session reconstructing `index.html` locally for testing:** the embedded base64 logo is large; if it gets stubbed with a placeholder to make local iteration easier, the real logo **must** be restored (and any fixes re-verified afterward) before the file is considered final. (v2.9 did not need to touch the logo and confirmed it round-tripped byte-for-byte through this session's edits.)
+See `known-bugs-and-fixes.md`'s "Added in v2.10" section for the complete list of what was verified and how.

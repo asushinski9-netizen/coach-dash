@@ -219,12 +219,23 @@ setTimeout(() => {
 
   // ── 7. Deliberate hidden-swimmer-in-bubble-list scenario ─────────
   // SWIMMERS is a top-level `let`, so it isn't a window property — mutate it via eval in
-  // the page's own realm (per the project's documented jsdom testing approach).
+  // the page's own realm (per the project's documented jsdom testing approach). Fixture
+  // dob/time are computed dynamically against the LIVE county QT data (same pattern already
+  // used by Section 12's tie-break test below), rather than a hardcoded dob+time combination
+  // — hardcoding was the exact bug that made this fixture go stale as real time passed and
+  // the swimmer "aged into" already-qualified status (see known-bugs-and-fixes.md Open
+  // Issue #7, now fixed by rebuilding this fixture the same dynamic way).
+  const hiddenTestDob = '2011-01-01';
+  const hiddenTestBracket = window.getCountyAgeBracket(hiddenTestDob);
+  const hiddenTestQtRow = window.lookupQT(window.eval('COUNTY_QT'), 'Boys', hiddenTestBracket, '50 Free', 'S');
+  check('hidden-bubble-list fixture QT row exists (county_qt.json Boys 50 Free SC for the computed bracket)',
+    !!hiddenTestQtRow && hiddenTestQtRow.qualify != null);
+  const hiddenTestTime = window.secToTime(hiddenTestQtRow.qualify * 1.01); // 1% slower than qualify — guaranteed a near-miss, not a PB
   window.eval(`
     SWIMMERS.push({
-      id: 'sw_bubble_hidden_test', name: 'Hidden Bubble Test', dob: '2011-01-01', gender: 'Boys',
+      id: 'sw_bubble_hidden_test', name: 'Hidden Bubble Test', dob: '${hiddenTestDob}', gender: 'Boys',
       squad: undefined, hidden: true,
-      pbs: [{ event: '50 Free', course: 'S', time: '26.00', date: '2026-06-01' }]
+      pbs: [{ event: '50 Free', course: 'S', time: '${hiddenTestTime}', date: '2026-06-01' }]
     });
   `);
   const offCount = window.buildBubbleList(3, false).filter(e => e.name === 'Hidden Bubble Test').length;
