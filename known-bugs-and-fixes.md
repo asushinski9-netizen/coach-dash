@@ -1,161 +1,115 @@
-# Coach Dashboard — Known Bugs & Fixes (v2.10)
+# Coach Dashboard — Known Bugs & Fixes (v2.11)
+
+*Older sections (v2.7 and earlier, and the detail of v2.8–v2.10) are condensed here; the full earlier text is in git history of this file (the v2.10 copy). Everything below the Open Issues list that is new is under "Added in v2.11".*
 
 ---
 
 ## Open Issues
 
 ### 1. Sync token sent as a URL query parameter, not a header
-`startSync()` calls the Apps Script Web App as `${syncUrl}?token=${token}`. Risks the token landing in browser history and server/proxy access logs. Correct fix is a `doPost` handler reading the token from the JSON request body — requires a coordinated change to `apps_script_v2.2.3.gs`. **Still not fixed.** Unchanged in v2.10 (a schema/merge-logic session, not touching sync transport).
+`startSync()` calls the Apps Script as `${syncUrl}?token=${token}` (risk: browser history / access logs). Correct fix is a `doPost` reading the token from the body — a coordinated change to the Apps Script. **Not fixed.** Natural to fold into the v2.12 Apps Script change if the coach wants it.
 
 ### 2. Single shared sync token, not per-coach
-One `ACCESS_TOKEN` in Apps Script Script Properties, shared by every coach. Documented accurately in the Settings modal. **Deliberately not addressed** — real per-coach auth needs an Apps Script schema change that's a genuine feature, not a fix. Unchanged in v2.10.
+One `ACCESS_TOKEN` in Script Properties, shared by every coach. Documented accurately in Settings. Deliberately not addressed.
 
 ### 3. Apps Script quota
-Apps Script has a daily execution quota (~20,000 calls on personal accounts). No rate limiting implemented. Low risk for single-coach use. Unchanged.
+Daily execution quota (~20,000 calls personal accounts); no rate limiting. Low risk today. **Becomes relevant to v2.12** (a payload carrying every dated result is larger and slower).
 
 ### 4. GitHub QT sync has no *offline* handling
-Unchanged since v2.6/v2.8 — see prior versions of this file for detail. Not relevant to v2.10, which touches no network code.
+Unchanged. Not relevant to v2.11.
 
 ### 5. Manual-upload/sync validation still isn't exhaustive
-Still not validated: swimmer `id`, `squad` value normalisation, QT `age` bracket strings against the actual valid set. Unchanged in v2.10 — see prior versions of this file. `pbs`/`source` validation is now as exhaustive as `se`'s (Section "Added in v2.10" below).
+Still not validated: swimmer `id`, `squad` value normalisation, QT `age` strings against the valid set. Unchanged.
 
-### 6. (New context, no code change yet) SE PB report import — matching/conflict/history design is planned, not built
-Unchanged from v2.9's writeup. Queued as ~~v2.9 (SE# field)~~ **shipped** → ~~v2.10 (`pbs` schema widening + `mergePbEntry()`)~~ **shipped, this session** → **v2.11 (the import itself) — next.** See `se-pb-import-and-history-plan.md`.
+### 6. ~~SE PB report import~~ — SHIPPED in v2.11
+See "Added in v2.11". (Roadmap: `se-pb-import-and-history-plan.md`.)
 
-### 7. ~~`test_overview.js` — stale test fixture~~ — FIXED in v2.10
-Previously tracked here as a known pre-existing failure (root-caused in the v2.9 session's post-ship follow-up: `sw_bubble_hidden_test`'s hardcoded dob+time had "aged into" already-qualified status as real time passed, so the Bubble List's hidden-swimmer-inclusion assertion no longer had a near-miss swimmer to find). **Fixed this session** by rebuilding that fixture the same dynamic way (`getCountyAgeBracket()` + `lookupQT()` against the live QT data, not a hardcoded dob/time pair) that Section 12's tie-break test already used — the exact fix this issue always called for. Re-run and confirmed: `test_overview.js` now passes with **zero** known failures on both the unmodified v2.9 baseline and the v2.10 build. See "Testing" under "Added in v2.10" below.
+### 7. ~~`test_overview.js` stale fixture~~ — fixed in v2.10.
 
-### 8. (Operational gotcha, not a code bug) Redeploying Apps Script as a NEW deployment silently breaks sync
-Unchanged from v2.9's writeup — see prior versions of this file. Not touched in v2.10 (no Apps Script changes this session).
+### 8. (Operational) Redeploying the Apps Script as a NEW deployment silently breaks sync
+A new deployment gives a new URL; the dashboard keeps the old one in Settings. **Will matter for v2.12's Apps Script change** — redeploy as a new *version* of the existing deployment, or update Settings. Operational note from v2.11 UAT: a one-off "Fetching… then Failed to fetch" was reported and cleared by itself; the sync code (`startSync`, `mergeSwimmers`, `mergePbs`, `fetchWithRetry`, `setSyncStatus`) was verified byte-identical to v2.10 at that point, so it was a transient network/Apps Script issue.
 
-### 9. (Feature request, explicitly deferred to v2.12) A dedicated "Swimmers" tab for basic profile data
-Unchanged from v2.9's writeup. Still queued for v2.12, independent of the SE-import roadmap (v2.10/v2.11).
+### 9. (Feature request) Dedicated "Swimmers" tab for basic profile data
+Independent of County/Regional's PB/QT-driven filtering. **Moved from v2.12 to v2.13 (confirmed by the coach)** — see plan Section 7.2.
 
-### 10. (Pre-existing sharp edge, noted during v2.10 UAT, not fixed) Swimmer matching by `name|dob` is whitespace/case-sensitive beyond trim+lowercase
-`mergeSwimmers()`'s `localKey` is `name.toLowerCase().trim() + '|' + dob`. An internal difference (e.g. a double space in a name) between the Google Sheet and a locally-entered swimmer means no match: the Sheet's copy is added as a new swimmer and the local one kept as "local-only", i.e. a silent duplicate. Reproduced in a scratch test; predates v2.10 and unrelated to it. Worth a decision (normalise internal whitespace in the key?) in a future session; the v2.11 SE import's name+DOB fallback matching should use the same normalisation, so it's worth settling before then.
+### 10. (Pre-existing sharp edge, partly mitigated) Swimmer matching differs between features
+- Google Sheets sync matches by `swimmerSyncKey` = lower-case + trimmed name + `|` + dob. An internal whitespace difference, a nickname, or a rename in the Sheet means no match: the Sheet's copy is added as a new swimmer and the local one is "local-only".
+- The SE import uses `normaliseNameKey` (NFKC, lower-case, collapse whitespace), plus a tiered matcher.
+- **Risk:** the sync's **Remove** option deletes dashboard swimmers not found in the Sheet *by that key*, including manually added ones, along with all their PBs (manual and SE-imported). **Mitigated in v2.11:** Remove now shows a confirmation listing exactly who would be deleted (same key function, tested equal to the actual removal set), with a "possible rename" hint when the Sheet has the same dob+gender under another name; help text explains Keep/Hide/Remove.
+- **Decision for v2.12:** share one normalised key across sync and import? (A behaviour change to sync: two local swimmers that collapse to one key need a collision check so nobody is silently dropped.)
 
----
+### 11. (NEW) Google Sync only brings in the fastest result per event+course
+`buildPayload()` in `apps_script_v2.2.3.gs` keeps one entry per swimmer+event+course (`if (!swimmer.pbs[key] || timeSec < swimmer.pbs[key].sec)`). A slower swim added later is never imported; two swims added before a sync import only the faster. Designed for "today's PB", but now inconsistent with SE import, which builds dated history, and a blocker for progression insights. **Headline of v2.12** (plan Section 7). The dashboard side already copes with many dated entries per event+course.
 
-## Added in v2.10
+### 12. (NEW, cosmetic but inaccurate) "Never changes … SE #" wording
+The note above Suggested matches says ticking never changes Name, DOB, Gender or SE #. Not true for SE #: if the dashboard swimmer has none, confirming fills it in from the SE report (the review note says "fill in the SE # for N swimmer(s)" and the summary lists them). An existing SE # is never overwritten. Fix the wording in v2.12.
 
-Scope, held exactly to the session brief: `pbs` schema widening (multiple dated entries per event+course), the new per-PB `source` field, `mergePbEntry()` (the fully-specced, locked function from `se-pb-import-and-history-plan.md` Section 4), a derived-live current-PB helper threaded through `buildSwimmerRows`/Hot Right Now/Bubble List, Hot Right Now's redefinition to "recent improvements," and `sanitiseSwimmersData()`'s extended validation. Plus one real production bug, found and fixed in the same session (see below) — reported directly by the coach, not originally scoped, but small in surface area and squarely inside this session's own `pbs`-handling code.
+### 13. (NEW) Suggested-match rules to revisit
+Requested by the coach. Current behaviour for 25 scenarios, and ten specific observations (SE # outranks name; DOB-mismatch suggestions don't show both dates; DOB typo = unmatched; gender handling inconsistent; prefix-only first-name similarity and no accent folding; strict surname suffix rule; no "pick one" for two candidates; no per-swimmer exclude on an auto-match; SE # collisions; name-key divergence) are in **`se-matching-scenarios.md`**, pinned by `test_se_matching_matrix.js`.
 
-### Real production bug found and fixed: manual PBs silently wiped out by an upload/sync merge
+### 14. (NEW) "Sheet rows suppressed" note repeats until the Sheet is corrected
+Rule 2 of the SE protection (`seSuppressed`) keeps replaced made-up-date rows from being re-added, and says so on every sync while those rows remain in the Sheet. There is no "acknowledge/ignore". Heuristic limit: two genuinely separate swims with an identical time on different dates would have the later Sheet row suppressed (cannot change a current PB). Only `source:"se"` entries ever trigger it.
 
-**Reported directly by the coach**, and reproduced before any fix was attempted: a swimmer with two manually-entered PBs for the same event+course (e.g. two dated 50 Free entries, added via separate rows in Add/Edit Swimmer — nothing in `saveSwimmer()` stopped this, and both saved correctly) would lose **both** manual entries the moment a swimmers file with a faster time for that same event was uploaded as a Merge, or the coach re-synced from Google Sheets. Only the newly-uploaded/synced entry survived.
+### 15. (NEW) Some UI behaviour cannot be verified in the test environment
+jsdom has no layout, `@media`, native scroll or focus-loss handling. The inner-list scroll reset *was* reproducible there (new elements start at 0) and is regression-tested, but earlier attempts "passed" jsdom and still failed in a real browser. Rule: for any UI change that depends on browser behaviour, say plainly that it is unverified until the coach tests it, and add a coach test step.
 
-**Root cause:** `mergePbs()` — the function behind both gala sync and manual-upload Merge — built its working map keyed purely by `` `${event}|${course}` ``, with no date in the key at all:
-```js
-localPbs.forEach(pb => { pbMap[`${pb.event}|${pb.course}`] = { ...pb }; });
-```
-Before the uploaded/synced file was even considered, this line alone collapsed the coach's two manual entries down to whichever one happened to be processed last while just building the *local* side of the map — the first was silently discarded. The incoming file's entry for that same event+course then overwrote whatever survived. Net effect: both manual PBs gone, only the uploaded one left.
+### 16. (NEW — PRIVACY) Real personal data in test fixtures and a UI placeholder
+The Arty fixtures (`arty_rows.json`, `swimmers_pb__3__-_Copy.json`, the real sample `.xlsx`) and the new tests contain a real child's name, date of birth and SE #, and the "SE #" input placeholder (`e.g. 1745801`, since v2.9) matches a real number. The repo serving `county_qt.json`/`regional_qt.json` is public on GitHub. **Do not commit these to the public repo as-is.** v2.12: replace with synthetic data and a synthetic placeholder (and check git history of anything already committed).
 
-This became a real, everyday-reproducible bug specifically because of what v2.10 is: multiple entries per event+course only became a legitimate, common thing to have on file this session (a coach could always technically enter two rows for the same event in Add/Edit Swimmer before v2.10 too, but the app's entire mental model — one PB per event+course — meant nothing further downstream expected or tested that shape surviving a merge). Fixing this was therefore treated as squarely v2.10's own responsibility, not a tangential side fix.
+### 17. (NEW) Test tooling assumptions
+`test_se_import_core.js` hard-codes `/mnt/user-data/uploads/` for the real sample `.xlsx` and needs `python3` + `openpyxl`; the probes read fixtures from their own folder. A fresh workspace needs `npm install jsdom`. v2.12: make paths configurable / check fixtures in under a `fixtures/` folder (anonymised).
 
-**Fix:** `mergePbs()` re-keys to `` `${event}|${course}|${date || ''}` `` — the same event+course+date identity `mergePbEntry()` uses for its own record matching (not a coincidence; it's the correct notion of "same recorded swim" either way). Every distinct dated entry — manual, gala, or eventually SE-imported — now survives a merge independently. The existing "keep whichever time is faster" comparison `mergePbs()` has always done is preserved, but now only fires when two sources genuinely describe the *same* dated swim (a real duplicate-report situation worth reconciling), not merely two different swims that happen to share an event+course. This is a scoped, minimal correctness fix to `mergePbs()`'s *existing* quiet-merge behaviour — it deliberately does **not** give `mergePbs()` `mergePbEntry()`'s richer per-record conflict-review UI; that stays exclusive to `mergePbEntry()` (and v2.11's SE import), per the locked spec.
-
-Verified with a dedicated reproduction in `probe_pbs_widening.js`: a swimmer with two manual dated PBs for the same event+course, merged (via both the raw `mergePbs()` function and end-to-end through `mergeSwimmers()`, simulating a real upload-merge) against an incoming file with a faster PB for that event on a third, different date — all three entries now survive, none lost or duplicated. A same-date collision (two sources genuinely reporting the same dated swim) still correctly keeps whichever time is faster, confirming the fix didn't lose that pre-existing behaviour.
-
-### Feature: `pbs` schema widening — multiple dated entries per event+course
-
-- `sw.pbs` **keeps its field name** — only what it's allowed to hold changes: many entries per event+course are now valid, where before there was effectively one (nothing enforced this before either, but nothing downstream handled more than one surviving a merge — see the bug above). No migration needed; every existing export/sync/backup shape stays valid, since "one entry" is just a degenerate case of "many."
-- New optional per-PB-entry field: **`source`** (`"gala"` / `"se"` / `"manual"`). A PB entry with no `source` — every entry stored before this version — is treated as `"gala"` at **read time** via the new `getPbSource(pb)` helper (`pb.source || 'gala'`), not backfilled with a one-time write pass.
-- **`sanitiseSwimmersData()`** extended (not duplicated) to validate `source` against the three allowed values when present — an invalid value drops just that field, keeping the PB entry, following the exact "drop the field, keep the record" pattern `se` already established in v2.9. Returns a new `pbSourceDropped` count, threaded through `describeSanitiseIssues()` and all three of its existing callers (manual upload, sync, restore) with no other changes needed at those call sites.
-- Multiple entries for the same event+course were **never actually deduplicated** by `sanitiseSwimmersData()`'s filter/map even before this session — so no change was needed there to *allow* the widened cardinality; the only real gap was everything downstream (Hot Right Now, `mergePbs()`) that implicitly assumed at most one entry per event+course, which is what this session's other changes (below) and the bug fix above actually address.
-
-### Feature: `mergePbEntry()` — implemented exactly per the locked spec
-
-Implemented as a standalone, fully-tested function in `index.html`, per `se-pb-import-and-history-plan.md` Section 4. **Not wired into any UI flow yet** — it has no caller in v2.10; v2.11's SE import is its intended first caller, per the phased build order the plan doc locked. Implementing and testing it now, ahead of that caller, was itself the explicit v2.10 scope.
-
-- **Identity: `event + course + date`** — deliberately excludes `time`, so two sources disagreeing on the time for the same real swim raises a conflict rather than silently fragmenting into a duplicate record.
-- **`outcome: 'add'`** — no existing entry matches the identity. Auto-appended, tagged with the incoming record's `source` (or `'manual'` if none given). No coach review.
-- **`outcome: 'noop'`** — an existing entry matches identity *and* time. Nothing changes at all — **`source` is sticky and never silently changes on a match**, even if the incoming record's `source` differs from what's already stored (verified directly: a `'gala'`-sourced entry matched by an incoming `'se'`-sourced record with the same time stays `'gala'`).
-- **`outcome: 'conflict'`** — identity matches but `time` differs. Surfaced via `existingEntry`/`incomingEntry`/`index` for the caller's UI — never auto-resolved either direction. `resolvePbEntryConflict(existingPbs, index, incoming, resolution)` applies the coach's choice: `'keep'` leaves everything untouched; `'incoming'` does a full straight replacement of time, source, and competition.
-- **Competition/venue handling** (not part of identity, per spec): `mergeCompetitionField()` + `isTruncatedFragmentOf()` implement the rule that an incoming competition string only overwrites an existing one if the existing value is empty, or the incoming value is *not* a truncated (exactly-30-character, matching SE's confirmed export truncation) fragment of a fuller existing value. Verified directly: a genuinely different competition name does overwrite; a truncated fragment of the same fuller name does not, even when the conflict is resolved as "use incoming" for the time/source.
-
-### Feature: derived-live "current PB" helper, threaded through every consumer
-
-- New `getCurrentPbMap(pbs)` — pulls the "fastest entry per event+course, scanned live across the *entire* pbs array" logic (already exactly what `buildSwimmerRows()` did inline before this session) out into its own named, documented, reusable function. `buildSwimmerRows()` now calls it directly; County/Regional and the Bubble List (which both go through `buildSwimmerRows()`) automatically share the same definition rather than three independent copies of the same loop.
-- **Never stored or cached anywhere** — always recomputed from the full array on every call, per the plan doc's Section 3.3 rationale: a stored "is this the current PB" flag would go stale the instant an earlier-dated entry is added out of chronological order later (a coach backfilling an old result, or a future SE import seeding one historical point). Verified directly: a synthetic swimmer with three dated entries for the same event+course, deliberately **not** in chronological order, still returns the genuinely fastest one as the current PB.
-
-### Feature: Hot Right Now redefined as "recent improvements," not every recorded swim
-
-- New `computePbImprovements(pbs)`: groups a swimmer's **dated** pbs by event+course, sorts each group chronologically, and walks forward tracking the best-so-far time — an entry only counts as an "improvement" if it beat everything strictly before it in that group. Undated entries are excluded entirely (unchanged convention: an undated PB can't be placed in a chronological feed).
-- **Required, not optional, once `pbs` can hold non-PB history** — without this, a swimmer with three dated swims for the same event+course (one an improvement, one not, one an improvement again) would previously have shown all three in Hot Right Now; now only the two genuine improvements appear. Verified directly with exactly that three-swim scenario, both against the pure helper and end-to-end through `renderHotList()`'s rendered output.
-- `collectRecentPbs()` now calls `computePbImprovements()` instead of iterating `sw.pbs` directly for every dated entry — the actual code-level redefinition.
-
-### Security review: `collectRecentPbs()`'s "not safe by construction" property, re-examined for the widened schema
-
-Per the v2.6 stored-XSS history (see below), `collectRecentPbs()` is the one PB-reading path that bypasses `buildSwimmerRows()`'s `ALL_EVENTS`/`'S'|'L'`-constrained lookup, reading `sw.pbs` directly. Widening what `pbs` can hold — more entries, plus a new `source` field — was explicitly treated as a reason to re-verify this property, not assume it carried over for free just because `sanitiseSwimmersData()` was extended.
-
-**Confirmed safe, and confirmed why:** `sanitiseSwimmersData()`'s per-entry validation (`pb.event` against `ALL_EVENTS`, `pb.course` against `'S'`/`'L'`, `pb.date` shape) already ran (and still runs) independently over *every* entry in the array, regardless of how many entries exist for a given event+course — the filter/map never depended on "exactly one entry" as an assumption. Widening cardinality therefore doesn't change what validation each individual entry receives. Verified directly with a synthetic swimmer holding three entries for the same event+course, one with a malicious `course` value (`"><img src=x onerror=1>"`) planted in the *middle* one — the sanitiser drops exactly that one entry and keeps the other two valid ones, exactly as it would for a single-entry swimmer. `source` itself is validated as a plain enum-membership check against three known strings, so it carries no injection surface of its own — never rendered raw anywhere in this session's changes.
-
-### Verified: Backup & Restore needs zero changes for the widened schema (confirmed, not assumed)
-
-`downloadBackupBundle()`/`loadBackupFile()`/`applyBackupRestore()` themselves were **not touched** this session. Per the v2.8 design bet (documented in `architecture.md`), the bundle's `swimmers` piece is pre-sanitised through the exact same `sanitiseSwimmersData()` call every other swimmer-data path uses — so extending that one function was expected to be sufficient. This was **verified directly** in `probe_pbs_widening.js` rather than left as an assumption: a bundle-shaped payload with widened `pbs` (multiple entries per event+course) and every valid `source` value round-trips through `sanitiseSwimmersData()` with zero data loss and zero special-casing required.
-
-### Testing
-
-- **`test_overview.js`** — Section 7's stale fixture rebuilt dynamically (see Open Issue #7 above); re-run against both the unmodified v2.9 baseline and the finished v2.10 build. **Zero failures on either** — confirming the fixture rewrite alone (no app-code change) was the complete fix for Issue #7, and that none of this session's actual `pbs`/merge changes introduced any new Overview-tab regression.
-- **`probe_pbs_widening.js`** (new, v2.10, not part of the shipped dashboard) — 45 checks covering: `sanitiseSwimmersData()`'s widened-array/`source` validation; `getPbSource()`'s default; `getCurrentPbMap()`'s live-derivation correctness against out-of-order entries; `computePbImprovements()`'s improvement-vs-non-improvement discrimination (pure function and end-to-end through `renderHotList()`); every `mergePbEntry()` outcome (`add`/`noop`/`conflict`) including the sticky-source-on-no-op property and the competition-truncation rule; the `mergePbs()` bug-fix reproduction (pure function and end-to-end through `mergeSwimmers()`); `saveSwimmer()`'s source-tagging (new swimmer → `manual`; editing an unrelated field preserves an untouched PB's original source; genuinely editing a PB's time re-tags it `manual`); the widened-schema XSS-safety re-check; and the Backup & Restore compatibility check. All 45 passed.
-- `node --check` clean on the extracted script throughout.
-
-### Feature (small, incidental): `saveSwimmer()` now tags each PB entry with a `source`
-
-Not explicitly called out in the original session brief, but a necessary consequence of adding the `source` field at all — one of its three valid values (`manual`) needs an actual writer, and Add/Edit Swimmer is the obvious one. New helper `resolvePbSourceOnSave(existingPbs, entry)`: when editing an existing swimmer, an untouched PB entry (matched by event+course+date+time against what was already on file) keeps its original `source` unchanged — editing an unrelated field like Squad and re-saving must never silently reclassify existing gala-synced history as "manual" just because the form always rebuilds the whole `pbs` array on Save. A genuinely new PB row, or an existing one with an edited time/date, is tagged `'manual'`, since a human just typed it into the form. Verified directly for all three cases (new swimmer, untouched edit, genuinely-changed edit).
-
-### Post-UAT findings, same session (coach ran `user_test_script_v2.10.md`)
-
-The coach ran the full manual test script. Parts 0-3 all passed, including the headline scenario (Part 1: manually-entered PBs surviving an upload-merge) and Hot Right Now's improvements-only behaviour (Part 2). Two further items came out of the round:
-
-1. **Logo rendered broken in the delivered `index.html` - real, fixed (with a caveat).** Root cause: to speed up local test iteration the embedded base64 logo was stubbed out, and the end-of-session "restore" was a hand-retyped ~2,700-character blob that came out corrupted (confirmed: the decoded stream had no JPEG end-of-image marker and PIL refused to open it). This is exactly the reconstruction risk the v2.7 process note already warned about ("never ship a locally-reconstructed copy without confirming the real logo made it back in") - and was not caught by any test, since none assert on the logo's bytes. **Interim fix:** replaced with a small, verified-valid placeholder badge PNG, and a code comment beside `LOGO_DATA_URI` flags it as a placeholder. **Still outstanding:** the real club logo line from the last known-good production file (v2.9) must be spliced back in verbatim - a straight copy, never retyped. Tracked in `coach_dashboard_handover.md`.
-2. **"Squad/SE # not overridden by a Google Sheet sync" - investigated, NOT a bug.** Reproduced directly against the real `mergeSwimmers()`: with a non-blank Sheet value, the Sheet correctly overrides a manual Squad/SE # edit, and the SE # conflict warning fires. (Blank Sheet cells deliberately never erase local values - the documented v2.9 design.) The coach's observation turned out to be from syncing the wrong data set, not from the code. During the investigation a related pre-existing sharp edge was noticed and is worth recording, not fixing here: `mergeSwimmers()` matches swimmers by `name|dob`, so a swimmer whose name differs even by whitespace between the Sheet and the local record is not matched - the Sheet's version is added as a second swimmer and the local one is kept. Not reported by the coach, no change made; logged as Open Issue #10 below.
+### 18. (NEW, by design) SE import limits
+`.xlsx` only (no legacy `.xls`); 5 MB file / 20,000 rows caps; SE report is current-best-only so it cannot backfill history (stated in the UI).
 
 ---
 
-## Added in v2.9
+## Added in v2.11
 
-Scope, held exactly to what the session brief specified: the SE# field end-to-end, per `se-pb-import-and-history-plan.md` Section 5. Plus two unrelated mobile bugs, reported and fixed in the same session (see below) — not originally in scope, but small, self-contained, and requested directly.
+Scope: the SE PB Report Import (plan Sections 2, 4, 5), plus the fixes below found during a multi-round coach UAT. 392 automated checks (74 + 57 + 171 + 65 + 25), all passing; the logo line is byte-identical to the v2.10 file (hash verified at every hand-back).
 
-### Feature: SE # field, end-to-end
+### Features
+- **SE PB Report Import** (Manage Data card → wizard modal: files → review → summary); native `.xlsx` reader; row-shape parser; tiered swimmer matcher; time-conflict and probable-duplicate resolution (skip / replace date / import separately, with bulk buttons); live review counts; apply only when something would change; SE # filled in only where blank; every write through `sanitiseSwimmersData()`.
+- **Auto-matched list** that surfaces name differences; collapsed lists of what will be added and updated.
+- **`mergePbs()` protects SE-confirmed results** from the Google Sheet (same-date mismatch kept + counted; same-time/different-date Sheet rows not re-added) and reports both in the sync and Upload-Merge messages.
+- **Google Sync:** Keep/Hide/Remove wording rewritten; **Remove asks for confirmation** with the list of swimmers and PBs that would be deleted.
+- **Add/Edit Swimmer:** "＋ Add PB entry" floats in the sticky footer; a manual add scrolls to and focuses the new row.
 
-- **`apps_script_v2.2.3.gs`** reads a new "Basic Data" column E, header `"SE #"`, via a newly-extracted `parseBasicDataRow(row, ss)` — pulled out specifically so this logic is unit-testable outside Apps Script (see `test_se_field.js`). Includes an optional `se` string on each swimmer in the sync payload when present; omitted entirely (not an empty string) when blank, matching how `squad` is already handled. Payload `version` bumped `"2.2"` → `"2.3"`.
-- **`mergeSwimmers()`** carries `se` through from an authoritative sync at the same trust tier as `name`/`dob`/`gender`. **Soft-warning conflict handling** (not a silent overwrite, not a block): if a swimmer already has an `se` and the incoming sync value is *different*, the Sheet's value still wins (it's still authoritative), but the change is counted (`stats.seConflicts`) and named (`stats.seConflictNames`), surfaced in `startSync()`'s success message so a coach can double-check the Sheet if it looks wrong — this is exactly the kind of thing that signals a typo or an earlier SE-import fallback-match error, per the plan doc's reasoning.
-- **`sanitiseSwimmersData()`** validates `se` as `/^\d+$/` when present — invalid values are **dropped, not fatal**: just the `se` field is removed, the swimmer record itself is kept (same treatment as an invalid PB `date`). Returns a new `seDropped` count, surfaced via `describeSanitiseIssues()` on every path that already calls it (manual upload, sync, restore) with zero changes needed to those call sites beyond destructuring the new field.
-- **Add/Edit Swimmer** gained an optional SE # input, its own row directly below Gender/Squad (not squeezed into an existing grid) — validated client-side the same way (`/^\d+$/`, blank allowed), with a clear inline error rather than a silent no-op on an invalid value.
+### Bugs found and fixed (root cause → fix → how verified)
 
-### Two mobile bugs found and fixed in the same session (not originally in scope)
+| # | Found by | Problem | Root cause | Fix |
+|---|---|---|---|---|
+| 1 | UAT | ~290 rows "skipped"; every boy's header "unrecognised" | Real exports use `(Open/Boy 12)`; regex required `(Boy 12)` | Optional repeatable `category/` prefix; test with the exact line; plan Section 2 corrected |
+| 2 | UAT | "click for detail" showed only 30 of 290 rows | `.slice(0, 30)` cap | Show all, in a height-capped scrolling box (also for the other two long lists) |
+| 3 | UAT (twice) | Em-dashes in user-visible text | My sweep only covered the `<script>` block and missed the static Manage Data card | Fixed; sweep now covers static HTML and render code; house style: hyphens in UI text |
+| 4 | UAT | "can't backfill times … beaten in" unclear | Poor wording | Rewritten in plain language in both places |
+| 5 | UAT | Unmatched swimmer despite same surname/DOB/gender | Tier 3 *excluded* candidates holding a different SE # | Deprioritise instead; offer with the conflict named; matrix test |
+| 6 | UAT | Arty/Artyom auto-match invisible | Auto-matches showed no per-swimmer detail | Auto-matched detail box with name-difference note (test script 3.3 also corrected: an SE # match auto-matches, it is not a suggestion) |
+| 7 | UAT | "What does the tick do?" | No explanation | Explanatory line (see #12 for its remaining inaccuracy) |
+| 8 | UAT | Disabled Apply still looked live | No `.btn:disabled` style anywhere | Added |
+| 9 | UAT | Review said 2 adds, apply did 4 | Preview computed once and always excluded duplicates; apply used separate logic | `seComputeOutcomes()` shared by preview and apply; all 27 duplicate-choice combinations tested for agreement |
+| 10 | UAT | Replace counted as a new PB (summary summed to 16 for 15 results) | Replace removes one record and adds one: an update, counted as both | Replace is an *update*; every entry in exactly one bucket; sum asserted |
+| 11 | UAT | Ticking pulled the view to the top (reported 3 times) | Two fixes protected only the outer modal; the real cause was each list being its own scroll box (and `<details>` collapsing), rebuilt by `innerHTML` | Save/restore every `[data-keep]` list and details state around each redraw; reproduced and verified failing before the fix |
+| 12 | UAT | Re-sync brought back replaced made-up-date rows | `mergePbs` matches on event+course+date; the old-date record was gone so the Sheet row looked new | `seSuppressed` rule; tested in Keep/Remove/Hide; stable on repeat syncs |
+| 13 | UAT | Sheet typo could beat an SE-confirmed time | "Faster wins" was the only signal in `mergePbs` | `seProtected` rule |
+| 14 | UAT | Apply live when nothing to import | Enabled whenever a swimmer was matched | Enabled only on a real change; explanatory note |
+| 15 | UAT | Add-PB button out of reach in a long list | Static position | Moved into the sticky footer |
+| 16 | UAT | Sync "Remove" could silently delete swimmers (and their SE-imported PBs) after a Sheet rename | Name+DOB matching + no confirmation | Confirmation with list and possible-rename hint |
+| 17 | tests | Several probe failures | Test-harness faults, not app bugs: stale file-input reference after the modal re-renders; fixture SE # collisions; stale source-text windows; wrong dates in assertions; a hand-count error of mine | Fixed in the tests; lessons recorded in architecture.md |
 
-1. **Date of Birth / Date Set fields overflowing the Add/Edit Swimmer modal.** Root cause: `.form-grid-2` (Name+DOB) and `.pb-top-grid` (Event/Course/Time/Date Set) are 2-column CSS Grids, and a native `<input type="date">`'s intrinsic minimum content width is wider than a 50% column can offer on a narrow phone. **Fix, round 1:** both grids collapse to a single column under the existing mobile breakpoint.
-2. **Every text field zooming the page in on focus, staying zoomed after tapping out.** iOS Safari zooms the whole viewport in when a focused control's computed `font-size` is under 16px. **Fix:** a single mobile-only rule raises `.form-input`, `.name-search`, `.qt-inline-input`, `.margin-input-group input`, and bare `select` to `font-size: 16px`.
-
-**Round 1's Date of Birth/Date Set fix turned out to be insufficient** — see "Fixes made after the coach's manual UAT pass" below for the round-2 fix.
-
-### Fixes made after the coach's manual UAT pass (same session, before sign-off)
-
-1. **Date of Birth / Date Set still overflowing on mobile, round 2** — `input[type="date"].form-input` gets explicit `width/height/box-sizing`, plus the internal WebKit/Blink date sub-elements' own padding is reset.
-2. **Add/Edit Swimmer forcing an empty PB row by default** — `showAddSwimmerModal()` and `editSwimmer()` no longer auto-add a blank row.
-3. **Sync modal's auto-close firing before a warning could be read** — `startSync()` now computes `hasNotableWarning` and only arms the 3-second auto-close timer when it's false.
-4. **`mergeSwimmers()`'s "updated" count including swimmers nothing happened to, and the conflict dialog appearing off-screen** — `swimmerFieldsChanged()` comparison added; `showDataConflict()` now scrolls into view.
-
-### A second UAT round, same session
-
-Five more points raised, three fixed, one confirmed-as-designed, one queued for v2.12 (Open Issue #9). See prior version of this file for full detail — unchanged by v2.10.
-
-### Testing
-
-- `test_se_field.js` — 15/15 checks, unchanged this round.
-- `probe_se_field.js` — 45 checks, all passed.
-- Full `test_overview.js` run: **2 pre-existing failures** noted at the time (Open Issue #7) — now fixed in v2.10, see above.
-
----
-
-## Added in v2.8
-
-Not a bug-fix session — a single, planned feature: Full Backup & Restore. See prior version of this file, or `session-log.md`'s v2.8 entry, for the complete writeup — unchanged by v2.9 or v2.10.
+### Testing (v2.11)
+`test_overview.js` 74, `probe_pbs_widening.js` 57 (updated: `mergePbs` returns `{pbs, seProtected, seSuppressed}`), `probe_se_import.js` 171 (wired wizard; real Arty files; all 27 duplicate combinations; Keep/Hide/Remove semantics; Remove confirmation), `test_se_import_core.js` 65 (parser/matcher/reader extracted from `index.html`; real files; zip-bomb/truncation/oversize), `test_se_matching_matrix.js` 25. **Backup & Restore verified (not assumed) to need zero changes.** `node --check` clean.
 
 ---
+
+## Added in v2.10 (condensed)
+`pbs` widened to many dated entries per event+course; per-PB `source`; `mergePbEntry()` (locked spec) + `resolvePbEntryConflict()`; live `getCurrentPbMap()`; Hot Right Now = improvements only (`computePbImprovements()`); `sanitiseSwimmersData()` validates `source`. **Real bug fixed:** `mergePbs()` keyed by event+course only, silently wiping manual PBs on merge → keyed by event+course+date. Open Issue #7 fixed. UAT: logo placeholder restored from the v2.9 file (never retype the base64); whitespace-sensitivity of name+dob matching logged (#10).
+
+## Added in v2.9 (condensed)
+SE # end to end (Apps Script column E; `mergeSwimmers` authoritative carry-through with soft conflict warning; Add/Edit field with validation); mobile fixes (date inputs, iOS zoom); UAT fixes (no forced empty PB row, sync dialog holds open for warnings, "matched" vs "updated" counts, sticky action row).
+
+## Added in v2.8 (condensed)
+Full Backup & Restore (single JSON bundle, Replace-only, excludes sync URL/token).
 
 ## Fixed in v1.0 through v2.7
-
-Unchanged from prior versions of this file. See `session-log.md` for the full turn-by-turn narrative of each session. Summary of major milestones: v1.0 (initial build), v2.1 (security/bug patch), v2.2 (Google Sheets sync), v2.2.1 (regression + security fix), v2.3 (GitHub QT sync, Manage Data redesign), v2.4 (diagnostics, stored-XSS fixes), v2.5 (Overview tab built), v2.6 (full codebase review — security/a11y hardening, mobile fixes, the original Hot Right Now stored-XSS finding), v2.7 (two more mobile fixes, corrected root causes for two v2.6 "fixes" that weren't quite right).
+Unchanged; see `session-log.md`. Milestones: v1.0 initial build; v2.1 security/bug patch; v2.2 Sheets sync; v2.2.1 regression + security fix; v2.3 GitHub QT sync + Manage Data redesign; v2.4 diagnostics + stored-XSS fixes; v2.5 Overview tab; v2.6 full code review (security/a11y/mobile); v2.7 further mobile fixes.

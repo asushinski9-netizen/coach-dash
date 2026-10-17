@@ -1,136 +1,115 @@
-# Coach Dashboard — SE PB Import & PB History — Plan (v2, September 2026)
+# Coach Dashboard — SE PB Import & PB History — Plan (v3, after v2.11 shipped)
 
-**Status: planning only. Nothing described in this document has been implemented.** This supersedes the June 2026 version of this document. That version's background (Sections 1, 2's ToS reasoning) is carried forward unchanged below; everything about report format, PB-history design, and sequencing has been substantially revised following a planning session that reviewed the real sample `.xlsx` files and worked through the PB-history question in detail. If picking this up fresh: read this whole document before writing any code.
-
----
-
-## 1. Background — how we got here (unchanged from v1)
-
-The original ask was to pull each swimmer's *official* PB data automatically from Swim England's public results lookup site, using the "SE #" column in the coach's Google Sheet. **This was tested and ruled out** — Swim England's Website Terms of Use explicitly prohibit systematic downloading/database-building from the site, and this is personal performance data on named individuals (mostly minors) from the sport's governing body. Not a risk-tolerance call — a hard no.
-
-**The unblock:** the coach exports two reports directly from the team's own SE App account — one Short Course PBs report, one Long Course PBs report. This is the coach's own authorised export, so none of the ToS concerns apply.
+**Status: v2.8, v2.9, v2.10 and v2.11 are SHIPPED and UAT-passed.** This supersedes the September 2026 (v2) version. The design in Sections 3–6 was implemented as locked; Section 2 now records what real exports taught us (two corrections to the original assumptions); Section 7 is the roadmap for what comes next (re-ordering confirmed by the coach). If picking this up fresh: read this whole document, then `se-matching-scenarios.md`, then `coach_dashboard_handover.md`.
 
 ---
 
-## 2. Report format — confirmed against real sample files
+## 1. Background (unchanged)
 
-Real sample files (`ALL_COMPETITIVE_SHORT_COURSE`, `ALL_COMPETITIVE_LONG_COURSE`) have been reviewed directly. This replaces the v1 plan's screenshot-derived guesses with confirmed structure:
+The original ask was to pull each swimmer's *official* PB data from Swim England's public results lookup using the "SE #" column of the coach's Google Sheet. **Ruled out:** Swim England's Website Terms of Use prohibit systematic downloading/database-building, and this is personal data on named individuals (mostly minors). Not a risk-tolerance call — a hard no.
 
-- Single sheet per file (named `"Top Times(0)"` in the samples — **do not hardcode this name**; read the first sheet and validate its header row shape instead, since a different report configuration could name it differently).
-- Header row: `Rank | Event | Best Time | P/F/T | Date | Meet Name`. No merged cells.
-- **Swimmer-header row is a single cell, single line, no embedded newlines**: `"Lastname, Firstname: DD/MM/YYYY  (Gender Age) SE#"` — e.g. `"Baker, Bob: 18/10/2013  (Boy 12) 1234567"`. Note: **no category prefix** (the v1 plan's screenshot-derived guess of `"Open/Boy 11"` was wrong — the real format is just `"(Gender Age)"`). Two spaces between the DOB and the opening parenthesis. Gender token is singular (`Boy`/`Girl`) — maps to the dashboard's `"Boys"`/`"Girls"`.
-- **Column A ("Rank") is always `"1"`** — this is not a mystery field (v1's open item #2, now resolved): it's genuinely the Rank column, always 1 because this is a *Top Times* report — only the current best per event is ever exported. Defensively still take-the-fastest if a future export ever has >1 row per event, but not expected.
-- **Blank-row spacing is genuinely inconsistent, confirmed empirically, including *within* a single swimmer's own block** (e.g. one swimmer has no blank row between two consecutive events, but does between others). **Block detection must be by row shape, never by blank-row position**: a header row has column B empty and column A matching the name/DOB/SE# pattern; an event row has a numeric Rank in column A and a recognised event name in column B; an all-blank row is an ignorable separator.
-- Event names match `ALL_EVENTS` **exactly** — no abbreviation-mapping table needed (unlike the Google Sheet's `EVENT_MAP`).
-- Time format: `"36.97S"` / `"1:26.25S"` — numeric time + single-letter course suffix (`S`/`L`), matching the dashboard's existing convention exactly. Each file is course-homogeneous (SC file only has `S` suffixes, LC only `L`), so the suffix is redundant confirmation, not the only signal.
-- Dates are `DD/MM/YYYY`, need conversion to ISO `YYYY-MM-DD`.
-- **`P/F/T` column (race stage) — decided: ignore entirely.** Not stored, not surfaced anywhere. (Resolves v1's open item #4.)
-- **Meet/competition names are hard-truncated at exactly 30 characters** by SE's own export — confirmed empirically (every truncated name in both sample files is exactly 30 chars, none exceed it). **Decision: a truncated SE competition string never overwrites an existing fuller `competition` value on a matched record; it's only used when writing a genuinely new record.**
+**The unblock (shipped in v2.11):** the coach exports two reports (Short Course and Long Course "Top Times") from the team's own SE App account and loads them into the dashboard. This is the coach's own authorised export, so none of the ToS concerns apply.
 
 ---
 
-## 3. PB progression history — now integrated into this plan, not a separate later ask
+## 2. Report format — confirmed against real exports, with two corrections
 
-The v1 plan treated PB history as a vague, deliberately-undesigned follow-on (its old Section 5). Following a design conversation, it is now a required part of the SE import's core mechanism, not a separate feature — the sections below replace v1 Section 5 entirely.
+Confirmed structure (real files, reviewed directly and re-checked in v2.11):
+- Single sheet per file. **The sheet name is never relied on** (`"Top Times(0)"` in samples); the first sheet is read and its header row `Rank | Event | Best Time | P/F/T | Date | Meet Name` is validated.
+- A swimmer-header row is a single cell, single line: `"Lastname, Firstname: DD/MM/YYYY  (Gender Age) SE#"`.
+- Column A ("Rank") is always `1` (Top Times report); a defensive "keep the fastest" applies if a future export has several rows per event.
+- Blank-row spacing is inconsistent, even *within* one swimmer's block. **Block detection is by row shape only**, never by blank-row position (verified by stripping every blank row and by inserting one between every row: identical results).
+- Event names match `ALL_EVENTS` exactly. Time format `"36.97S"` / `"1:26.25S"` (numeric + course letter). Dates `DD/MM/YYYY` -> ISO. Each file is course-homogeneous; a file mixing `S` and `L` is rejected.
+- `P/F/T` is ignored entirely (not stored, not shown).
 
-### 3.1 The key realization: snapshot diffing, not one-shot capture
+**Correction 1 — the header's category prefix varies.** v2 of this plan said the real format had *no* category prefix (`(Boy 12)`), based on the two sample files. A coach's production export used **`(Open/Boy 12)`**, and every such header was unparseable (about 290 event rows reported as "skipped" as orphans). The parser now accepts any number of `category/` segments before `Boy`/`Girl` (`(Boy 12)`, `(Open/Boy 12)`, `(Open/National/Girl 14)`). **Lesson: treat the header as report-configuration-dependent and test against exports from more than one configuration.**
 
-A single SE "Top Times" export is current-best-only — it cannot, by itself, backfill history that's since been superseded. But a **sequence** of these snapshots, diffed against what's already stored, does incrementally build real history going forward: day 1's import seeds one dated point per event/course; if a gala happens and the swimmer improves, day 15's import brings a new dated best, which — diffed against what's already stored — is genuine new historical information, not just an update to "the current number."
+**Correction 2 — meet names are not always truncated at 30 characters.** v2 said SE hard-truncates at exactly 30. Real exports contain a 36-character name (`BHSC Christmas Cracker 2025 (Harrow)`) alongside many exactly-30-character ones. The competition-merge rule (`mergeCompetitionField()` / `isTruncatedFragmentOf()`) only fires on an *exactly 30-character prefix of a longer stored name*, so longer untruncated names are handled correctly; the plan's "never exceeds 30" claim is simply not true.
 
-**This means the record identity for diffing must be `event + course + date`, not `event + course` alone.** That's a materially different (and more granular) key than the dashboard's current one-entry-per-event-course model.
-
-### 3.2 What this means for the data source landscape
-
-- **The SE report structurally cannot backfill history in one shot** — it only ever has room for the current best per event/course on any given pull. Day-1 import only ever seeds **one** historical point per event/course (whatever is officially best *right now*) — anything the swimmer swam and was later beaten by isn't visible to this report format, ever. **Set this expectation with the coach explicitly**: this is not a backfill of years of history, it's a forward-accumulating feed from the point of first import onward.
-- **Google Sheets/gala sync could, in principle, be a much richer history source** — the underlying "Results" tab has every meet result the club has ever recorded, but `apps_script_v2.2.2.gs`'s `buildPayload()` currently **collapses to only the fastest time per event+course before it's ever exported** (`if (!swimmer.pbs[key] || timeSec < swimmer.pbs[key].sec)`). Getting full historical richness from gala data requires rewriting the Apps Script to emit every dated result — a real, separable, second-file change (its own deployment, its own testing). **Explicitly deferred** — not required for the core mechanism to work. Gala sync can keep sending "current best per event+course" exactly as it does today and still get diffed against stored history the same way SE import does.
-- **Manual Add/Edit Swimmer** can already supply arbitrary historical results (a coach can type in an old meet time at any point) — naturally compatible with the widened schema below with no UI redesign required for this phase.
-
-### 3.3 Schema decision
-
-- **`sw.pbs` keeps its field name** — not renamed to `results`/`history`. Only what it's allowed to *hold* changes: **multiple dated entries per event+course, instead of exactly one.** Keeping the name unchanged means every existing export, backup, and the Apps Script payload shape stays valid with zero migration step — "one entry per event+course" is just a degenerate case of "many."
-- **New field per PB entry: `source`** — `"gala"` / `"se"` / `"manual"`. A PB entry with no `source` (all pre-existing data) is treated as `"gala"` at read time via a small helper — no mass backfill-write pass needed.
-- **"Current PB" and "was this a PB when it was set" are *never* stored — always recomputed live** by scanning the full `pbs` array for that event+course. Rationale: historical entries can now arrive out of chronological order (SE import backfills one dated point on day 1; a coach might later manually add an older result from years earlier) — a stored flag would go stale the moment an earlier-dated record is added afterward, and nothing would automatically re-derive it unless explicitly coded to. Recomputing avoids an entire class of staleness bugs; at squad scale (tens to low hundreds of swimmers, a handful of results each) the extra computation is irrelevant.
-- **No visible change to County/Regional tabs** in this round of work — they keep reading derived current-best exactly as today.
-- **Hot Right Now's definition needs to tighten** once the array can hold non-PB historical swims too: it should mean "recent *improvements*" (entries that were a PB at the time), not every recorded swim, or the feed would flood with non-PB noise. This is a required adjustment when the schema lands, not optional polish.
-- **The visual "Progression" tab is explicitly deferred** — swim-dash's live site (`asushinski9-netizen.github.io/swim-dash`) was reviewed directly as the reference model: its "📈 Progression" tab and "📋 All Results" table both work off one array of every individual result, with "PB?" and "Δ Prev" as *derived* columns computed by scanning that array in date order. That's the right pattern to borrow eventually, but the data model needs to be correct first — the pretty UI on top can follow a step behind with nothing wrong in the meantime.
+**Reading `.xlsx` in the browser (as built).** No third-party library: SheetJS's last npm release has known prototype-pollution/ReDoS CVEs and the patched build is not available from npm, and this file is untrusted input about minors. A small native reader (`readXlsxRows`) uses `DecompressionStream('deflate-raw')` and `DOMParser`, with hard limits (5 MB file, 20 MB per decompressed entry, 200 zip entries, 20,000 rows, 30 columns) and a decompression-bomb guard that counts real output bytes rather than trusting the zip header. Only `.xlsx` is supported (not legacy `.xls`).
 
 ---
 
-## 4. The `mergePbEntry()` merge function — full spec, agreed and locked
+## 3. PB progression history (implemented in v2.10; used by v2.11)
 
-This is the one function everything else depends on — used by SE import from day one, and intended to be re-pointed under Sheets sync's existing merge path later if/when the Apps Script full-history rewrite ships. One definition of "same swim," used everywhere, rather than several drifting apart across import paths.
+Unchanged design, now real: `sw.pbs` allows many dated entries per event+course; each may carry `source` (`gala`/`se`/`manual`, absent = `gala` at read time); "current PB" and "was this an improvement" are always recomputed live, never stored; record identity for diffing is **event + course + date**.
 
-**Identity key: `event + course + date`.** Deliberately *not* including `time` — two sources disagreeing about the time for the same real swim is exactly what should raise a conflict, not fragment into a fake extra record.
+**What this means in practice (restated because it drives the roadmap):**
+- A single SE "Top Times" export is current-best-only, so it can never backfill history; history accumulates by repeated imports. The import screen says so in plain language.
+- **Google Sheets sync is *also* current-best-only today** — see Section 7.1. The Apps Script collapses the Results tab to the single fastest time per event+course before export. This was known (v2 Section 3.2) and deferred; UAT showed it is now the main obstacle to progression insights.
+- Manual Add/Edit Swimmer can supply any historical result.
 
-**Inputs:**
-- `existingPbs` — a swimmer's current `pbs` array (widened schema, multiple entries per event+course allowed)
-- `incoming` — one candidate record: `{ event, course, date, time, competition, source }`
+---
 
-**Outcomes:**
+## 4. `mergePbEntry()` and how SE data is protected (implemented)
 
-| Case | Condition | Result |
+**4.1 `mergePbEntry()` — locked spec, unchanged and implemented in v2.10.** Identity `event + course + date` (never time). `add` (auto-appended), `noop` (identical; `source` is sticky), `conflict` (same identity, different time; per-record coach decision via `resolvePbEntryConflict()`: keep, or full replacement of time/source/competition). The SE import calls it for every entry; it does not reimplement any of it.
+
+**4.2 UI-layer additions in v2.11 (not part of the locked spec; `mergePbEntry()`'s identity is unchanged):**
+- **Probable duplicates.** An SE entry with the same event+course+*time* as an existing entry on a *different date* is flagged (typical cause: a backfilled PB entered in the Sheet with a best-guess date). Three choices per duplicate, with bulk buttons per swimmer: **Skip** (default; leave everything), **Replace existing date with SE's** (remove only that one matched entry and write the SE one: a net-zero *update*), **Import as a separate result** (keep both; a new PB).
+- **One computation for preview and apply.** `seComputeOutcomes()` classifies every entry (`add` / `noop` / `conflict` / `dup-skip`, plus which existing entry a replace removes). The review screen and the apply step both use it, so the numbers shown can never drift from what applying does. Every SE entry lands in exactly one bucket: added, updated, unchanged, skipped, or conflict kept/replaced.
+- **Apply is only live when it would change something** (a new PB, an updated record, a conflict set to "Use SE report", or an SE # to fill in).
+- Everything written is passed back through `sanitiseSwimmersData()`.
+
+**4.3 Protecting SE-confirmed data from the Google Sheet (`mergePbs()`, v2.11).** The Sheet is hand-entered and can contain mistakes (including implausibly fast times) and still holds any made-up dates the coach has since corrected via SE. Two rules, both limited to entries whose `source` is `'se'`:
+1. **Same event+course+date:** an SE-confirmed entry is never overwritten by a Sheet/uploaded row with a different time, whichever is faster. Counted and reported ("N SE-confirmed PB(s) differed... kept as the SE report recorded them").
+2. **Same event+course+time, different date, nothing on file under that date:** the Sheet row is treated as the same swim and not re-added (otherwise a "Replace date" correction was silently undone by the next sync, because the old made-up-date row had nothing left to match). Counted and reported with a note.
+Ordinary Sheet-vs-manual behaviour (keep the faster, same-date) is unchanged. Known limit: two genuinely separate swims with an identical time on different dates would have the later Sheet row suppressed (cannot change a current PB).
+
+---
+
+## 5. Swimmer matching and SE # (shipped v2.9 / v2.11)
+
+SE # is a swimmer field (v2.9). SE import matching is tiered (SE #; then name + date of birth; then surname + date of birth + gender, which is never auto-applied); only the first two tiers can auto-apply. **The authoritative description of every scenario is `se-matching-scenarios.md`**, generated from `test_se_matching_matrix.js`. The import never creates, deletes or hides a swimmer, never writes squad, never writes date of birth, and fills in an SE # only where the dashboard has none (after the match is applied/confirmed).
+
+---
+
+## 6. Backup & Restore (shipped v2.8)
+
+Replace-only, schema-agnostic by construction (snapshots `SWIMMERS` / `COUNTY_QT`(+meta) / `REGIONAL_QT`(+meta) and re-runs each through its existing sanitiser). **Re-verified for v2.10 (`source`) and v2.11 (`source:"se"`): zero changes needed.** Because it is Replace-only, restoring an old bundle loses anything done since — including an SE import. Coach guidance: download a fresh backup after any import you intend to keep.
+
+---
+
+## 7. Roadmap for v2.12 onward (re-ordering CONFIRMED by the coach)
+
+### 7.1 What UAT of v2.11 revealed
+
+- **Google Sync only ever brings in the fastest result per event+course**, and only once. Adding a *slower* swim to the Sheet later is never picked up; adding two swims before a sync imports only the faster. This was designed for "today's PB", not history. With SE import now building a dated history, the Sheet feed needs to carry every dated result or the two sources are inconsistent and progression insights will have gaps. (Cause: `buildPayload()` in `apps_script_v2.2.3.gs` collapses with `if (!swimmer.pbs[key] || timeSec < swimmer.pbs[key].sec)`.)
+- **Suggested-match rules deserve a deliberate revisit** (`se-matching-scenarios.md`, Section 4).
+- Minor: the confirm-tick text says SE # is never changed (a blank is filled), test fixtures contain real personal data, and the sync/import name keys differ (open issues #12, #16, #10).
+
+### 7.2 Phasing (confirmed; one focused session each)
+
+| Version | Scope | Why this order |
 |---|---|---|
-| **Add** | No existing entry matches event+course+date | Auto-appended, tagged with the incoming `source`. **No coach review** — reported only in a final summary count. |
-| **No-op** | An existing entry matches event+course+date **and** time | Nothing changes — **including `source`, even if the incoming record's source differs from the one already stored.** A source tag is sticky; it only ever changes via an actual conflict-resolved overwrite (see below), never silently on a matching no-op. |
-| **Conflict** | An existing entry matches event+course+date, but `time` differs | Surfaced for a **per-record** coach decision — never auto-resolved either direction. Resolving as "keep existing" → nothing changes. Resolving as "use incoming" → **full straight replacement**: time, `source`, and competition (respecting the truncation-preference rule below) all update to the incoming values. No partial-supersede/retain-history mechanism yet — that's part of the later Progression-era work, not this phase. |
+| **v2.12 — "Data foundations"** | (a) **Apps Script emits every dated Results row** (new `apps_script_v2.2.4.gs`, payload `version` bump) plus the dashboard-side handling; (b) **revisit Suggested-match rules** and the confirm-tick wording; (c) small fixes: anonymise test fixtures/placeholder SE #, decide on a shared name-matching key (#10), make test fixture paths configurable | Progression needs the data model correct first (this plan's own principle). (a) is the only two-file change and carries a redeployment risk (open issue #8), so it should not share a session with UI restructuring. |
+| **v2.13 — "Tabs"** | Dedicated **Swimmers** tab (open issue #9) and a **Data** tab for Import/Export/Backup/SE-import review (deferred by the coach in v2.11 UAT) | Both are navigation/layout work in the same area; design together so they do not fight over the tab bar (which already wraps on mobile). |
+| **v2.14 — "Progression"** | The visual progression/history tab (swim-dash's "Progression" + "All Results" model, with derived "PB?" and "Δ Prev") | Needs the full history from v2.12 and, ideally, the tab structure from v2.13. |
 
-**Competition/venue handling (not part of identity):** on an "add," or on a conflict resolved as "use incoming," the incoming `competition` string only overwrites/sets the stored value if the stored value is empty, or the incoming value is *not* a truncated fragment of a fuller existing value (per the 30-char SE truncation finding in Section 2). Otherwise the existing competition text is kept even if the time itself updates.
+**What moved:** the **Swimmers tab** was the v2.12 headline in the v2.11 handover; it moves to **v2.13**, because the data-foundation work above is now a prerequisite for the coach's progression goals and carries more risk. Nothing was dropped.
 
-**Explicitly out of scope for this function:**
-- Swimmer matching (SE#/name+DOB fallback) — happens one layer up, before `mergePbEntry()` is ever called; it only ever runs once a swimmer is already confirmed matched.
-- Current-PB derivation, cross-event summarisation, or any squad-wide view — purely the caller's responsibility, always computed live per Section 3.3.
+### 7.3 Design questions for v2.12(a) — STILL OPEN, to settle with the coach before building
 
----
-
-## 5. SE# — new swimmer field, now confirmed end-to-end
-
-- **Google Sheet column confirmed: `"Basic Data"` tab, column E, header `"SE #"`** (alongside existing A=Swimmer name, B=Sex, C=DOB, D=Squad). Screenshot-verified.
-- `apps_script_v2.2.2.gs`'s `buildPayload()` needs to read column E and include an `se` field on each swimmer in the payload.
-- `mergeSwimmers()` needs to carry `se` through from Sheet sync — treated as **authoritative** when present, same trust level as `name`/`dob`/`gender` today (not merge-with-review; the coach's own maintained roster field).
-- **Conflict worth a soft warning, not a hard block:** if a swimmer already has an `se` value (e.g. previously backfilled by the SE-import name+DOB fallback) and a Sheet sync brings a *different* SE# for the same swimmer, that's a real data-quality signal (typo, or an earlier fallback-match error) — surface it, don't silently pick one.
-- Add/Edit Swimmer UI needs an editable, optional SE# field (validated as a non-empty digit string when present, no fixed length enforced — real sample SE#s vary from 7 to 8 digits).
-- **Matching logic for SE import itself is unchanged from v1**: SE# first, name+DOB fallback (persisting the SE# onto the matched record for future imports), skip-and-report if neither matches — never ghost-create a swimmer.
+1. **Heats/finals on one day:** identity is `event + course + date`, so a heat and a final of the same event on the same day collapse to the faster. Acceptable, or does the Results tab need a session/round column in the identity?
+2. **How far back?** Importing every historic Results row may ingest old typos and made-up dates. Options: all rows; since a cut-off date; only rows for dates not already covered by an SE-confirmed entry. (Rule 4.3(2) already suppresses same-time/different-date copies of SE-confirmed swims.)
+3. **Volume/quota:** payload size and Apps Script execution time with every row (a few hundred swimmers × years of results); keep the old payload shape readable so an un-redeployed script still works.
+4. **Hot Right Now** is already improvements-only (`computePbImprovements()`), so non-PB swims will not flood it; confirm that is still the intended meaning.
+5. **Mistakes in the Sheet** become visible history rather than hidden by "fastest only": does the coach want a way to flag/hide a bad row without deleting it from the Sheet?
+6. **DQ rows** stay excluded (yellow fill), as today.
 
 ---
 
-## 6. Backup & Restore — resequenced to build *first*
+## 8. Explicitly deferred / out of scope
 
-v1 sequenced this after the SE-import schema landed, reasoning it should be "designed once against the final shape." **Revised**: the bundle format doesn't actually interpret the swimmer schema at all — it just snapshots `SWIMMERS` / `COUNTY_QT`(+meta) / `REGIONAL_QT`(+meta) verbatim, and on restore runs each piece through its *existing* sanitiser exactly like the per-source upload flow already does. It's schema-agnostic by construction, so it doesn't need to wait — and given the next two pieces of work start writing into swimmer data more aggressively than anything before them, having this safety net in place *first* is the right call.
-
-- **Additive to the existing per-source Download/Upload/Clear cards, not a replacement** — those still earn their keep independently (e.g. sharing just `county_qt.json` on GitHub for swim-dash to also consume).
-- Format: single JSON bundle, `{version, generated, swimmers, countyQt: {meta, times}, regionalQt: {meta, times}}` — matching conventions already used elsewhere (`{version, generated, count, swimmers}` from the Apps Script payload; `{meta, times}` from the QT files).
-- Restore is **Replace-only**, with an explicit confirmation stating exactly what will be overwritten (counts per dataset).
-- **Deliberately excludes `coach_SYNC_URL`/`coach_SYNC_TOKEN`** — per-browser credentials, not squad data; bundling a secret token into a shareable backup file would be a real footgun.
-
----
-
-## 7. Phased build order — four versions, four sessions
-
-Given the scope above, this is being built as four separate versions, each in its own chat session (not just separate version numbers within one long conversation) — keeps context focused per session and keeps each session's doc updates (`architecture.md`, `data-schema.md`, `known-bugs-and-fixes.md`, `session-log.md`) accurate to what's actually shipped at that point, rather than describing several versions' worth of change as one lump.
-
-| Version | Scope | Depends on |
-|---|---|---|
-| **v2.8** | Backup & Restore (Section 6) | Nothing — fully independent |
-| **v2.9** | SE# field end-to-end (Section 5) — Apps Script column read, payload, `mergeSwimmers()`, Add/Edit Swimmer UI | Nothing — independent of the merge function and SE import |
-| **v2.10** | `pbs` schema widening + `source` field + `mergePbEntry()` implementation (Section 4) + derived current-PB helper threaded through `buildSwimmerRows`, Hot Right Now, Bubble List, `sanitiseSwimmersData` + Hot Right Now's "recent improvements" redefinition | v2.9 (for a stable swimmer schema to build against) |
-| **v2.11** | SE import itself: SheetJS read → block parser (row-shape based, Section 2) → SE#/name+DOB matching → per-record diff via `mergePbEntry()` → conflict review UI → apply → summary | v2.9 + v2.10 |
-
-**v2.10 gets its own dedicated `test_overview.js` regression pass before anything is layered on top of it** — it has real surface area across the existing app (not just new code), matching the project's standing convention of verifying each step rather than testing everything once at the end.
-
-**The `mergePbEntry()` spec in Section 4 is already fully agreed and locked** — it was deliberately settled as pure design ahead of any of the four sessions above, so v2.10 and v2.11 build against an already-agreed contract rather than one improvised mid-session.
-
----
-
-## 8. Explicitly deferred / out of scope for v2.8–v2.11
-
-- **Apps Script rewrite to emit every Results-tab row** (not just fastest-per-event+course) — real, separable, future work; would enrich gala-sourced history but isn't required for the core mechanism (Section 3.2).
-- **The visual Progression/history-browsing tab** (swim-dash-style charts + all-results table with derived Δ-vs-previous) — the data model needs to be correct now; the UI on top can follow later.
-- **Any "supersede but retain" richer conflict-resolution** beyond straight replacement (Section 4) — needs its own design pass once there's a reason to keep a superseded-but-since-corrected value visible.
-- Everything already carried forward as unchanged/untouched from before this planning session: per-coach sync auth, the `doPost`/header token fix, and the other pre-existing Open Issues in `known-bugs-and-fixes.md`.
+- "Supersede but retain" richer conflict resolution beyond straight replacement (needs its own design pass).
+- A way to acknowledge/silence the "Sheet rows matching SE-confirmed results were not re-added" note until the Sheet is corrected (it appears on every sync while those rows remain).
+- Per-coach sync auth, the `doPost`/header-token change, and the other long-standing items in `known-bugs-and-fixes.md`.
+- Legacy `.xls` import.
 
 ---
 
 ## 9. Coach communication notes
 
-- Coach has approved the SE PB report upload mechanism (carried from v1) and, in this session, the PB-history mechanism built on top of it, the SE# field, and the phased v2.8–v2.11 build order.
-- **Set expectations explicitly before v2.11 ships**: SE import's contribution to history is forward-accumulating from first import onward, not a backfill of the swimmer's full competitive past — the report format structurally cannot see anything a swimmer's current best has since superseded.
+- The coach approved the SE report upload, the PB-history mechanism, the SE # field, and the v2.8–v2.11 build order, and has signed off v2.11 after a multi-round UAT.
+- **Expectation-setting is built into the UI** (Manage Data card and import screen): the import is a forward-accumulating feed, not a backfill, because the report format cannot show a result a swimmer has since beaten.
+- Guidance already given in the test script: download a backup after any real import (Restore is Replace-only); be careful with the sync's **Remove** option (it deletes whole swimmers not found in the Sheet by name + date of birth; a confirmation now lists them first).

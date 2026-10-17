@@ -224,7 +224,13 @@ setTimeout(() => {
   const incomingFasterPb = [
     { event: '50 Free', course: 'S', time: '29.80', date: '2026-01-01' },
   ];
-  const mergedPbsResult = window.mergePbs(manualTwoPbs, incomingFasterPb);
+  // v2.11 API NOTE: mergePbs() now returns { pbs, seProtected } instead of a bare array (see
+  // "PART F" below for what seProtected is) — every call here destructures .pbs accordingly.
+  // This is the one other place in the codebase (besides mergeSwimmers() itself) that calls
+  // mergePbs() directly, so it needed updating alongside the v2.11 change; the ORIGINAL v2.10
+  // bug-fix behaviour this part tests (multi-entry PBs surviving a merge) is unrelated to that
+  // change and is re-verified below to still hold.
+  const mergedPbsResult = window.mergePbs(manualTwoPbs, incomingFasterPb).pbs;
   check('mergePbs() bug fix: BOTH original manual PBs survive a merge bringing in a faster time on a different date',
     mergedPbsResult.some(p => p.date === '2025-01-01') && mergedPbsResult.some(p => p.date === '2025-06-01'));
   check('mergePbs() bug fix: the incoming faster entry is also present as its own distinct dated entry',
@@ -234,16 +240,102 @@ setTimeout(() => {
 
   // Same-date collision still behaves as before: if the incoming entry genuinely shares the
   // same event+course+date as an existing one, "keep whichever time is faster" still applies
-  // (this is a real duplicate-report situation, not two different swims).
+  // (this is a real duplicate-report situation, not two different swims) — UNLESS the existing
+  // entry is SE-confirmed, covered separately in PART F below.
   const sameDateExisting = [{ event: '100 Back', course: 'S', time: '80.00', date: '2026-03-01' }];
   const sameDateIncomingSlower = [{ event: '100 Back', course: 'S', time: '81.00', date: '2026-03-01' }];
-  const sameDateResultSlower = window.mergePbs(sameDateExisting, sameDateIncomingSlower);
+  const sameDateResultSlower = window.mergePbs(sameDateExisting, sameDateIncomingSlower).pbs;
   check('mergePbs() same-date collision: a SLOWER incoming time for the exact same date does not overwrite the faster existing one',
     sameDateResultSlower.length === 1 && sameDateResultSlower[0].time === '80.00');
   const sameDateIncomingFaster = [{ event: '100 Back', course: 'S', time: '79.00', date: '2026-03-01' }];
-  const sameDateResultFaster = window.mergePbs(sameDateExisting, sameDateIncomingFaster);
+  const sameDateResultFaster = window.mergePbs(sameDateExisting, sameDateIncomingFaster).pbs;
   check('mergePbs() same-date collision: a FASTER incoming time for the exact same date DOES overwrite',
     sameDateResultFaster.length === 1 && sameDateResultFaster[0].time === '79.00');
+
+  // ────────────────────────────────────────────────────────────────
+  // PART F (v2.11) — SE-confirmed PBs are protected from mergePbs()'s "faster wins" rule
+  // ────────────────────────────────────────────────────────────────
+  // Raised directly by the coach: the Google Sheet is hand-entered and can contain a mistyped
+  // time that looks FASTER than reality. Before this change, such a typo would always beat an
+  // SE-confirmed correction for the same date, since "faster" was the only signal considered.
+  const seProtectedExisting = [{ event: '50 Free', course: 'S', time: '32.50', date: '2026-04-01', source: 'se', competition: 'Official SE time' }];
+  const wrongButFasterSheetEntry = [{ event: '50 Free', course: 'S', time: '25.00', date: '2026-04-01' }]; // implausibly fast - a typo
+  const protectedResult = window.mergePbs(seProtectedExisting, wrongButFasterSheetEntry);
+  check('an SE-confirmed entry is NOT overwritten by a faster-looking same-date sheet entry (the coach\'s exact "typo beats correction" scenario)',
+    protectedResult.pbs.length === 1 && protectedResult.pbs[0].time === '32.50' && protectedResult.pbs[0].source === 'se');
+  check('the mismatch is counted via seProtected rather than silently resolved either way', protectedResult.seProtected === 1);
+
+  const seProtectedVsSlower = [{ event: '100 Back', course: 'S', time: '80.00', date: '2026-04-02', source: 'se' }];
+  const slowerSheetEntry = [{ event: '100 Back', course: 'S', time: '85.00', date: '2026-04-02' }];
+  const protectedVsSlower = window.mergePbs(seProtectedVsSlower, slowerSheetEntry);
+  check('an SE-confirmed entry is equally protected against a SLOWER same-date sheet entry (not just a faster one - it is never auto-compared at all)',
+    protectedVsSlower.pbs[0].time === '80.00' && protectedVsSlower.seProtected === 1);
+
+  const seMatchingSheetEntry = [{ event: '200 Free', course: 'S', time: '2:30.00', date: '2026-04-03', source: 'se' }];
+  const sameTimeSheetEntry = [{ event: '200 Free', course: 'S', time: '2:30.00', date: '2026-04-03' }];
+  const protectedNoMismatch = window.mergePbs(seMatchingSheetEntry, sameTimeSheetEntry);
+  check('when the sheet genuinely agrees with the SE-confirmed time, seProtected is NOT incremented (nothing to warn about)',
+    protectedNoMismatch.seProtected === 0 && protectedNoMismatch.pbs[0].time === '2:30.00');
+
+  const seEntryUnrelatedDate = [{ event: '50 Fly', course: 'S', time: '40.00', date: '2026-01-01', source: 'se' }];
+  const sheetDifferentDate = [{ event: '50 Fly', course: 'S', time: '38.00', date: '2026-05-01' }]; // a genuinely new, later swim
+  const unrelatedDateResult = window.mergePbs(seEntryUnrelatedDate, sheetDifferentDate);
+  check('a genuinely NEW swim on a different date is unaffected by the protection (added normally, SE entry untouched, no warning)',
+    unrelatedDateResult.pbs.length === 2 && unrelatedDateResult.seProtected === 0);
+
+  const suppressSe = window.mergePbs([{ event: '50 Free', course: 'S', time: '30.00', date: '2026-01-01', source: 'se' }],
+                                      [{ event: '50 Free', course: 'S', time: '30.00', date: '2026-02-02' }]);
+  check('v2.11 follow-up: a Sheet row that is the same swim (same time) as an SE-confirmed entry under another date is not re-added, and is counted',
+    suppressSe.pbs.length === 1 && suppressSe.seSuppressed === 1);
+  const suppressNone = window.mergePbs([{ event: '50 Free', course: 'S', time: '30.00', date: '2026-01-01', source: 'manual' }],
+                                       [{ event: '50 Free', course: 'S', time: '30.00', date: '2026-02-02' }]);
+  check('v2.11 follow-up: the same Sheet row against a manual (non-SE) entry is unaffected - suppression applies to SE entries only',
+    suppressNone.pbs.length === 2 && suppressNone.seSuppressed === 0);
+
+  // End-to-end through mergeSwimmers() + the sync message, not just the pure mergePbs() unit.
+  window.eval(`SWIMMERS = ${swimmers};`);
+  window.eval(`
+    SWIMMERS.push({
+      id: 'sw_se_protect', name: 'Pat SeProtect', dob: '2012-01-01', gender: 'Boys', squad: undefined,
+      pbs: [{ event: '50 Free', course: 'S', time: '32.50', date: '2026-04-01', source: 'se' }]
+    });
+  `);
+  const syncBringsTypo = [{ name: 'Pat SeProtect', dob: '2012-01-01', gender: 'Boys', pbs: [
+    { event: '50 Free', course: 'S', time: '25.00', date: '2026-04-01' },
+  ] }];
+  const syncResult = window.mergeSwimmers(syncBringsTypo, 'keep', { sourceIsAuthoritative: true });
+  const patAfterSync = window.eval('SWIMMERS').find(s => s.id === 'sw_se_protect');
+  check('end-to-end via mergeSwimmers(): an authoritative sync does not overwrite Pat\'s SE-confirmed time with a sheet typo',
+    patAfterSync.pbs.find(p => p.event === '50 Free').time === '32.50');
+  check('end-to-end via mergeSwimmers(): the mismatch is reported in the stats (sePbsProtected), named', syncResult.sePbsProtected === 1 && syncResult.sePbsProtectedNames.includes('Pat SeProtect'));
+  window.eval(`SWIMMERS = SWIMMERS.filter(s => s.id !== 'sw_se_protect');`);
+
+  // Same protection must apply to a manual file Upload -> Merge, not just an authoritative
+  // Sheets sync - both paths share the one mergePbs() call inside mergeSwimmers(), so this
+  // should hold with no extra code; verified directly via the real UI entry point
+  // (applySwimmersUpload) rather than assumed from the sync case alone.
+  window.eval(`SWIMMERS = ${swimmers};`);
+  window.eval(`
+    SWIMMERS.push({
+      id: 'sw_se_protect_upload', name: 'Sam UploadProtect', dob: '2013-02-02', gender: 'Girls', squad: undefined,
+      pbs: [{ event: '100 Breast', course: 'S', time: '1:40.00', date: '2026-04-05', source: 'se' }]
+    });
+  `);
+  doc.getElementById('fileSwimmers'); // sanity: the real upload UI elements exist in this DOM
+  window.eval(`
+    applySwimmersUpload([
+      { name: 'Sam UploadProtect', dob: '2013-02-02', gender: 'Girls', pbs: [
+        { event: '100 Breast', course: 'S', time: '1:10.00', date: '2026-04-05' } // implausible typo
+      ] }
+    ], 'merge', '');
+  `);
+  const samAfterUploadMerge = window.eval('SWIMMERS').find(s => s.id === 'sw_se_protect_upload');
+  check('manual Upload -> Merge: an SE-confirmed PB is equally protected against a typo in the uploaded file',
+    samAfterUploadMerge.pbs.find(p => p.event === '100 Breast').time === '1:40.00');
+  const uploadStatusText = doc.getElementById('dataStatus').textContent;
+  check('manual Upload -> Merge: the status message names the protection, mirroring the sync warning\'s wording',
+    /SE-confirmed PB/.test(uploadStatusText) && /kept as recorded, not overwritten/.test(uploadStatusText));
+  window.eval(`SWIMMERS = SWIMMERS.filter(s => s.id !== 'sw_se_protect_upload');`);
 
   // End-to-end through mergeSwimmers(), the actual code path a real upload-merge or sync
   // runs through — not just the pure mergePbs() unit above.

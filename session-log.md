@@ -1,81 +1,69 @@
 # Coach Dashboard — Session Log
 
 ## v1.0 — June 2026
-
-Built entirely in a single Claude chat session. See `known-bugs-and-fixes.md` for the full bug list from this phase.
-
----
+Built in a single Claude chat session. See `known-bugs-and-fixes.md` for the v1.0 bug list.
 
 ## v2.1 through v2.9
+Unchanged from prior versions of this file (git history holds the full turn-by-turn text): v2.1 security/bug patch; v2.2 Google Sheets sync; v2.2.1 regression + security fix; v2.3 GitHub QT sync + Manage Data redesign; v2.4 diagnostics + stored-XSS fixes; v2.5 Overview tab; v2.6 full codebase review; v2.7 two more mobile fixes; v2.8 Backup & Restore; v2.9 SE # field end to end + mobile/UX fixes + UAT.
 
-Unchanged from prior versions of this file — see there for the complete turn-by-turn narrative of each session (v2.1 security/bug patch, v2.2 Google Sheets sync, v2.2.1 regression + security fix, v2.3 GitHub QT sync + Manage Data redesign, v2.4 diagnostics + stored-XSS fixes, v2.5 Overview tab built, v2.6 full codebase review, v2.7 two more mobile fixes, v2.8 Backup & Restore, v2.9 SE # field end-to-end + mobile/UX fixes + post-ship UAT round).
+## v2.10 — September 2026 (condensed)
+`pbs` schema widening (many dated entries per event+course), per-PB `source`, `mergePbEntry()` / `resolvePbEntryConflict()` implemented to the locked spec, live current-PB helper, Hot Right Now = recent improvements. A real bug was found and fixed mid-session: `mergePbs()` keyed by event+course silently wiped manually entered PBs on a merge (re-keyed to event+course+date). Open Issue #7 (stale test fixture) fixed. UAT passed; the logo was found corrupted by a hand-retyped restore and replaced from the v2.9 file.
 
 ---
 
-## v2.10 — September 2026 — `pbs` schema widening & `mergePbEntry()`
+## v2.11 — October 2026 — SE PB Report Import
 
-**Scope, agreed up front and held to:** `pbs` schema widening (multiple dated entries per event+course, was effectively one), the new per-PB `source` field, `mergePbEntry()` implemented exactly per the locked spec in `se-pb-import-and-history-plan.md` Section 4, a derived-live current-PB helper threaded through `buildSwimmerRows`/Hot Right Now/Bubble List, Hot Right Now's redefinition to "recent improvements," and `sanitiseSwimmersData()`'s extended validation. Explicitly *not* the SE import itself — that's v2.11, its own future session. One real production bug was also found and fixed in the same session (see below) — reported directly by the coach mid-session, not originally in scope, but small and squarely inside this session's own `pbs`-handling code.
+**Scope, agreed up front:** the SE PB report import (plan Sections 2, 4, 5) and nothing from v2.12. During UAT the coach asked for several related changes that were done in-session because they were defects or direct consequences of the feature (Section "UAT rounds"); items that are new scope were moved to v2.12 (below).
 
-### Pre-work: confirming a clean baseline before touching any feature code
+### Setup and decisions
+- The session began with the app files not on disk (only the two sample `.xlsx` had arrived); rebuilding `index.html` from text would have meant retyping the base64 logo, so the work waited for the real files. The `LOGO_DATA_URI` line was hashed before any edit and re-checked at every hand-back (always identical to the v2.10 file).
+- Baselines re-run first: `test_overview.js` and `probe_pbs_widening.js` clean.
+- Four decisions were raised before coding and agreed: **(1) reading `.xlsx`** — SheetJS rejected (its last npm release has known CVEs and the patched build was unreachable; the file is untrusted input about minors) in favour of a small native reader with hard limits; **(2) name matching** — a shared normalised key for the import, with sync deliberately left unchanged (Open Issue #10 stays open); **(3) UI** — its own modal launched from a Manage Data card, keeping `#dataModalStatusDock` last; **(4) files** — one picker accepting an SC and an LC file together.
+- Real sample exports were checked before relying on the plan: a meet name of 36 characters contradicted the "always 30" claim.
 
-Per the handover's testing-approach notes, `test_overview.js` was re-run against the unmodified v2.9 baseline first. Rather than simply reconfirming the known "2 pre-existing failures" (Open Issue #7) and leaving them, the coach approved fixing Issue #7 in the same pass, since this session was already going to be in `test_overview.js` for real reasons. Issue #7's root cause (documented in the v2.9 handover: a synthetic swimmer's hardcoded `dob`+`time` had "aged into" already-qualified status as real time passed, since age brackets are date-relative) was fixed by rebuilding that one fixture (`sw_bubble_hidden_test`, Section 7) to compute its dob/QT relationship dynamically via `getCountyAgeBracket()`/`lookupQT()` against the live QT data — the exact same pattern Section 12's tie-break test already used. Re-run against the v2.9 baseline: **zero failures**, confirming this was the complete fix and establishing a genuinely clean starting point before any v2.10 feature code was written.
+### Build
+`readXlsxRows` (zip walk, inflate with real-byte cap, shared strings, first sheet), `parseSeSheetRows` (row-shape classification), `combineSeParsedFiles`, `matchSeSwimmer`/`matchAllSeSwimmers` (tiered), the wizard (`seRender*`, `seApplyImport`), and a 25-scenario matching test. Every write calls the existing `mergePbEntry()`/`resolvePbEntryConflict()` and then `sanitiseSwimmersData()`. Logic was developed as standalone files, tested against the real exports, spliced into `index.html` between marker comments, and the standalone copies were retired in favour of tests that extract from the shipped file (no duplicate source to drift).
 
-### A mid-session bug report: manual PBs silently wiped out by an upload/sync merge
+### UAT rounds (coach feedback → outcome)
+1. **Round 1:** parser rejected `(Open/Boy 12)` headers (~290 "skipped" rows); detail list capped at 30; em-dashes in guidance; unclear wording; "what does the tick do"; scroll jump; Arty/Artyom auto-match invisible; a same-surname swimmer wrongly "unmatched"; DOB format; disabled button looked live; no list of what would be added; Add-PB button far away; question whether a replaced date can come from SE. → all fixed; **Replace date** added as a third probable-duplicate choice; the matcher's exclusion of candidates holding a different SE # was a real false-negative bug.
+2. **Round 2:** scroll still jumping; asked for bulk duplicate buttons; review undercounted adds vs apply (2 vs 4); Add-PB button into the sticky footer. Hand-checking the coach's Arty files found the apply numbers right and the preview wrong → `seComputeOutcomes()` shared by preview and apply (all 27 choice combinations tested for agreement).
+3. **Round 3:** coach pointed out a replace is an update, not a new PB. The summary had summed to 16 for 15 results; I had earlier defended the double count as intentional, which was wrong. → replace is an update; one bucket per entry.
+4. **Round 4:** after a replace-all import, a Google Sheet sync brought the old made-up-date rows back (Keep and Remove alike; the setting never touched PBs). Reproduced with the coach's real files → `mergePbs` second protection rule (suppress same-time/different-date copies of SE-confirmed swims).
+5. **Round 5:** scroll jump persisted for radios. Two earlier fixes had protected only the outer modal; reproducing it showed the inner lists (and `<details>`) were being reset → `data-keep` save/restore. Coach also asked for clearer Keep/Hide/Remove text; I corrected their summary (Remove deletes whole swimmers *and their PBs*) and added a **Remove confirmation** with a possible-rename hint.
+6. **Round 6:** Apply stayed live with nothing to import → enabled only when applying would change something.
+7. **Final:** all test-script steps passed. Two observations deferred to v2.12: the Suggested-match rules, and Google Sync only importing the fastest result per event+course.
 
-Partway through the session, the coach asked directly: "if my dashboard has a manual entry with 2 manual PBs and I upload the same swimmer via the upload function with a faster PB, the manual PBs are wiped out." This was investigated and reproduced before any fix was written, and traced to `mergePbs()` (shared by gala sync and manual-upload Merge) keying its working map purely by `event|course` with no date — so building just the *local* side of the map from two manually-entered same-event+course PBs would silently collapse them to one, before the uploaded file's own entry was even considered.
-
-This was treated as **this session's own bug to fix**, not deferred to v2.11 or treated as unrelated scope creep: multiple entries per event+course only became a legitimate, common, expected-to-survive shape this session, and `mergePbs()` not handling that shape correctly was a direct consequence of the exact schema widening this session was already doing. Fixed by re-keying `mergePbs()` to `event|course|date` — the same identity `mergePbEntry()` itself uses — so every distinct dated entry survives a merge independently, while a genuine same-date collision (two sources reporting the same real swim) still correctly keeps whichever time is faster. A deliberate, scoped decision was made **not** to give `mergePbs()` `mergePbEntry()`'s richer per-record conflict-review UI — that stays exclusive to `mergePbEntry()` and v2.11's SE import, keeping this a minimal correctness fix to existing behaviour rather than a second implementation of the locked merge spec.
-
-### Implementation
-
-- `sanitiseSwimmersData()`: extended to validate a new per-PB `source` field (`gala`/`se`/`manual`) — invalid values drop just the field, keeping the PB, following the exact pattern `se` established in v2.9. Returns a new `pbSourceDropped` count, threaded through `describeSanitiseIssues()` and all three existing callers with no other changes needed.
-- New `getPbSource(pb)`: `pb.source || 'gala'` — the read-time default for every PB entry stored before this version, avoiding a backfill-write pass.
-- New `getCurrentPbMap(pbs)`: the "fastest entry per event+course, scanned live" logic pulled out of `buildSwimmerRows()`'s inline loop (unchanged behaviour) into its own named, reusable function.
-- New `computePbImprovements(pbs)`: groups dated pbs by event+course, walks each group chronologically, and returns only entries that were a genuine improvement (a new best) at the time — Hot Right Now's actual redefinition. `collectRecentPbs()` now calls this instead of iterating every dated entry directly.
-- New `mergePbEntry()`, `resolvePbEntryConflict()`, `mergeCompetitionField()`, `isTruncatedFragmentOf()`: implemented exactly per the plan doc's locked Section 4 spec. No caller in this codebase yet — v2.11's SE import is the intended first caller.
-- New `resolvePbSourceOnSave()`: decides the `source` to store for each PB row saved through Add/Edit Swimmer, preserving an untouched entry's original source and tagging anything new/changed as `'manual'`.
-- `mergePbs()`: re-keyed as described above (the mid-session bug fix).
-
-### Security re-verification (not assumed, checked directly)
-
-Both explicitly called out as required, not optional, given what this session touches:
-- **`collectRecentPbs()`'s "not safe by construction" property** (flagged since the v2.6 stored-XSS fix) was re-verified against the widened schema: a synthetic swimmer with three entries for the same event+course, one with a malicious `course` value planted in the middle, still has exactly that one entry dropped by the sanitiser — confirming per-entry validation was never contingent on "at most one entry."
-- **Backup & Restore's zero-changes-needed claim** was verified directly with a dedicated probe check (a bundle-shaped payload with widened pbs + every valid source value, round-tripped through `sanitiseSwimmersData()` with no data loss), rather than left as an inference from the v2.8 design bet.
+### Honest notes on what went wrong along the way
+- My first em-dash sweep covered only the script block and missed the static card; it was reported twice.
+- Scroll was "fixed" twice on the strength of tests that could not reproduce the real cause; only the third fix started from a reproduction. Recorded as Open Issue #15 (don't claim a browser-dependent fix without a reproduction or an explicit "unverified").
+- I hand-counted the Arty duplicates wrongly (misread a date) before computing them with the real code.
+- I found, while documenting, that the confirm-tick text claims an SE # is never changed (a blank one is filled) — logged as #12 rather than altered after sign-off.
+- The environment's working directory was lost mid-documentation; all deliverables survived in the outputs folder, the workspace was rebuilt from them and every suite re-run before documenting.
 
 ### Testing
+392 checks, all passing: `test_overview.js` 74, `probe_pbs_widening.js` 57, `probe_se_import.js` 171, `test_se_import_core.js` 65, `test_se_matching_matrix.js` 25. Backup & Restore re-verified to need no change. Logo byte-identical.
 
-- **`test_overview.js`** — Issue #7's fixture fix (above) verified against both the v2.9 baseline (0 failures, confirming the fix's completeness) and the finished v2.10 build (0 failures, confirming no regression from this session's actual feature work).
-- **`probe_pbs_widening.js`** (new, v2.10) — 45 checks: widened-array/`source` sanitiser validation; `getPbSource()`'s default; `getCurrentPbMap()`'s correctness against out-of-order entries; `computePbImprovements()`'s improvement-discrimination logic (pure function and end-to-end through `renderHotList()`); every `mergePbEntry()` outcome including the sticky-source-on-no-op property and the competition-truncation rule; the `mergePbs()` bug-fix reproduction (pure function and end-to-end through `mergeSwimmers()`, simulating the coach's exact reported scenario); `saveSwimmer()`'s source-tagging across all three relevant cases; the widened-schema XSS re-check; and the Backup & Restore compatibility check. All 45 passed.
-- `node --check` clean on the extracted script throughout. `<title>` bumped to v2.10.
+### What did NOT happen
+No Apps Script changes. No dedicated Swimmers tab. No change to date-of-birth handling, squad, or County/Regional behaviour. No change to the Google Sync key/normalisation.
 
-### Post-ship UAT round, same session
-
-The coach ran `user_test_script_v2.10.md`: all steps passed. Two items arose: (1) the logo rendered broken - caused by a corrupted hand-retyped base64 restore after the logo was stubbed for local testing; replaced with a verified-valid placeholder badge and flagged in code, real logo still to be spliced back from the v2.9 file (see handover); (2) a reported "Squad/SE # not overridden by sync" - investigated against the real `mergeSwimmers()`, found to work correctly, and traced by the coach to having synced the wrong data set. The investigation surfaced one pre-existing sharp edge (name|dob matching is sensitive to internal whitespace), logged as Open Issue #10, not fixed. No code changes resulted beyond the logo.
-
-### What did NOT happen this session
-
-No SE import work (SheetJS parsing, SE#/name+DOB matching, conflict-review UI) — that's v2.11, its own future session, and depends on nothing further from v2.10 beyond what's already implemented and tested here. No changes to County/Regional tabs' visible behaviour (they call the same `buildSwimmerRows()`, which now derives "current PB" via a named helper but with identical results for the common one-entry-per-event+course case). No Apps Script changes. No changes to the Manage Data modal's UI beyond automatically inheriting the extended sanitiser's new count in existing status messages.
-
-All docs (`architecture.md`, `data-schema.md`, `known-bugs-and-fixes.md`, `session-log.md`, `project-brief.md`, `README.md`, `coach_dashboard_handover.md`) updated to reflect v2.10 as shipped and point the next session at v2.11.
+### Hand-off
+Docs written after UAT: `architecture.md`, `data-schema.md`, `known-bugs-and-fixes.md`, `session-log.md`, `project-brief.md`, `README.md`, `se-pb-import-and-history-plan.md` (v3), new `se-matching-scenarios.md`, and `coach_dashboard_handover.md` rewritten for v2.12. The re-ordering of the roadmap (Swimmers tab moves from v2.12 to v2.13; Apps Script full history becomes v2.12; progression is v2.14) was confirmed by the coach at the end of the session.
 
 ---
 
-## Files — current state (v2.10)
+## Files — current state (v2.11)
 
 | File | Version | Description |
 |---|---|---|
-| `index.html` | v2.10 | Main dashboard; `pbs` schema widening, `source` field, `mergePbEntry()`, the `mergePbs()` bug fix, Hot Right Now redefinition |
-| `apps_script_v2.2.3.gs` | v2.2.3 | Unchanged since v2.9 |
-| `test_overview.js` | v2.10 | jsdom dev-time test harness for the Overview tab — Section 7's fixture fixed this session (Open Issue #7 resolved); every other check unchanged since v2.5 |
-| `probe_pbs_widening.js` | new, v2.10 | Dedicated jsdom probe for this session's `pbs`/merge/source work — 45 checks (not part of the shipped dashboard, not merged into `test_overview.js`) |
-| `test_se_field.js` / `probe_se_field.js` | v2.9, unchanged | Prior sessions' dedicated probes |
-| `probe_backup_restore.js` | v2.8, unchanged | Prior session's dedicated probe |
-| `user_test_script_v2.10.md` | new, v2.10 | Coach-facing manual test checklist — the manual-PBs-survive-a-merge scenario is the headline item |
-| `user_test_script_v2.9.md` | v2.9, unchanged | Prior session's checklist |
-| `project-brief.md` | v2.10 | Roadmap now shows v2.10 shipped, v2.11 next |
-| `architecture.md` | v2.10 | Code structure and data flow, including the new `pbs`/merge mechanics |
-| `data-schema.md` | v2.10 | `pbs`/`source` promoted from "planned" (Section 10) into Section 1 |
-| `known-bugs-and-fixes.md` | v2.10 | Bug log; "Added in v2.10" section; Open Issue #7 resolved |
-| `session-log.md` | this file | Full session history |
-| `se-pb-import-and-history-plan.md` | v2, unchanged this session | Still the source of truth for v2.11 |
-| `coach_dashboard_handover.md` | v2.10 → v2.11 | Executive handover, rewritten this session for a fresh session starting v2.11 |
+| `index.html` | v2.11 | Dashboard (~5,180 lines): SE import, `mergePbs` protections, Remove confirmation, UX fixes |
+| `apps_script_v2.2.3.gs` | v2.2.3 | Unchanged since v2.9 (v2.12 will replace it) |
+| `test_overview.js`, `probe_pbs_widening.js` | v2.11 | Existing suites (the latter updated for `mergePbs`'s new return shape) |
+| `probe_se_import.js` | new | Wired-wizard probe, 171 checks |
+| `test_se_import_core.js` | new | Parser/matcher/reader tests extracted from `index.html`, 65 checks |
+| `test_se_matching_matrix.js` | new | Pins every matching scenario; `--table` regenerates the doc table |
+| `se_sample_rows.json`, `arty_rows.json`, `swimmers_pb__3__-_Copy.json` | fixtures | Rows read from real exports / a real roster — **personal data; keep out of the public repo** (Open Issue #16) |
+| `user_test_script_v2.11.md` | v2.11 | Coach-facing manual test script (UAT passed) |
+| `se-matching-scenarios.md` | new | What auto-matches / is suggested / is skipped, and v2.12 questions |
+| `se-pb-import-and-history-plan.md` | v3 | Plan, corrections, proposed roadmap |
+| `architecture.md`, `data-schema.md`, `known-bugs-and-fixes.md`, `project-brief.md`, `README.md`, `coach_dashboard_handover.md` | v2.11 | Updated this session |
+| `probe_se_field.js`, `test_se_field.js`, `probe_backup_restore.js`, `user_test_script_v2.9/2.10.md` | earlier | Unchanged |
