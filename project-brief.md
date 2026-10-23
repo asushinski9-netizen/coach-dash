@@ -1,7 +1,7 @@
 # Coach Dashboard — Project Brief
 
 ## What It Is
-A fully self-contained, single-HTML-file coaching dashboard for swimming clubs. It shows, at a glance, how every swimmer in the squad compares against County and Regional championship qualifying times, gives a whole-squad "morning briefing", and lets the coach manage all the underlying data in the browser — with optional sync from Google Sheets and GitHub, a one-file Backup & Restore (v2.8), a Swim England ID per swimmer (v2.9), real PB history (v2.10) and, new in v2.11, **import of the club's official Swim England PB reports** to cross-check and correct manually tracked PBs.
+A fully self-contained, single-HTML-file coaching dashboard for swimming clubs. It shows, at a glance, how every swimmer in the squad compares against County and Regional championship qualifying times, gives a whole-squad "morning briefing", and lets the coach manage all the underlying data in the browser — with optional sync from Google Sheets and GitHub, a one-file Backup & Restore (v2.8), a Swim England ID per swimmer (v2.9), real PB history (v2.10) import of the club's official Swim England PB reports (v2.11), and, new in v2.12, a Google Sheet feed that carries **every dated swim** (heats and finals) with typo, skipped-row and stale-deployment warnings.
 
 It is a companion to an individual swimmer dashboard (`swim-dash`, `asushinski9-netizen.github.io/swim-dash`), which consumes the same QT JSON formats.
 
@@ -19,7 +19,8 @@ Swimming club **coaches** — not swimmers or parents.
 8. Defend every data path against bad or malicious input.
 9. Let `pbs` hold genuine history without losing any of it to a routine merge (v2.10).
 10. **(v2.11)** Let the coach validate and correct manually tracked PBs against the *official* SE record — without either source silently overwriting the other, and with the coach in control of every identity match and every conflicting time.
-11. **(Planned, v2.12–v2.14)** Make the Google Sheet feed carry full dated history, then build progression insights on top of it.
+11. **(Done in v2.12)** The Google Sheet feed carries full dated history; a swimmer is the same swimmer across a corrected date of birth; data is never deleted automatically on a sync.
+12. **(Planned, v2.13–v2.14)** Swimmers and Data tabs, then progression insights built on the full history.
 
 ## What It Is Not
 - Not a race-results entry tool; not a live feed (sync/import are always coach-triggered); not multi-user or server-based (data is in `localStorage`; sharing is by Sheets/GitHub sync, JSON files, or a backup bundle); no per-coach authentication (known-bugs #1/#2).
@@ -42,10 +43,9 @@ Swimming club **coaches** — not swimmers or parents.
 | `user_test_script_v2.11.md` | Coach manual test script (UAT passed) |
 
 ## Current Version
-**v2.11** — SE PB Report Import (wizard modal; native `.xlsx` reader; tiered swimmer matching; time-conflict and probable-duplicate resolution including "replace a made-up date"; apply only when something would change), SE-confirmed PBs protected from the Google Sheet (`mergePbs`), Google Sync "Remove" now asks for confirmation, plus UX fixes from a six-round coach UAT. 392 automated checks passing; coach UAT passed. See `session-log.md`.
+**v2.12** (dashboard v2.12.7; Apps Script 2.2.4 build b5) — every dated swim from the Sheet (heat + final kept as two swims), unusually-fast / skipped-row / orphaned-swim reports, a build check for the deployed script, sync retry and clear errors, a shared name key with a collision stop, guaranteed-unique swimmer ids, DOB-aware matching, SE-import DOB hints. 644 automated checks passing; coach UAT passed. See `session-log.md`.
 
-## Next Planned Work — roadmap confirmed by the coach
-Read `coach_dashboard_handover.md` first. In short:
-- **v2.12 "Data foundations"** (was: Swimmers tab): Apps Script emits **every** dated Results row (today only the fastest per event+course is synced, so a slower later swim never arrives); revisit the Suggested-match rules (`se-matching-scenarios.md`); fix the confirm-tick wording; anonymise test fixtures and the SE # placeholder; decide on a shared name-matching key.
-- **v2.13 "Tabs"**: dedicated Swimmers tab (known-bugs #9) and a Data tab for import/export/backup.
-- **v2.14 "Progression"**: the visual progression / all-results view, built on the full history from v2.12.
+## Next Planned Work — read `coach_dashboard_handover.md` first
+- **v2.13 "Tabs"**: dedicated Swimmers tab (known-bugs #9) and a Data tab; candidates: filter footer counts (#20), a redesigned sync message (#23), System Settings / maintenance mode (#27), a merge-duplicates tool, acknowledging warnings (#14).
+- **Before v2.14**: rename the `pbs` field (known-bugs #19).
+- **v2.14 "Progression"**: the visual progression / all-results view, built on the full history.

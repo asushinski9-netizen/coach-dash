@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Broomfield Park SC - Coach Dashboard v2.11</title>
+<title>Broomfield Park SC - Coach Dashboard v2.12.7</title>
 <style>
 /* ── CSS Variables — matches swim-dash colour scheme ──────── */
 :root {
@@ -1561,7 +1561,41 @@ function warnStorageFailureOnce() {
   alert('⚠️ Browser storage isn\'t saving changes right now (it may be full, or private browsing may be blocking it). Changes are only kept for this session - download a backup before closing or reloading the page. (This warning will only show once.)');
 }
 
+// Swimmer ids MUST be unique: Edit and Delete look a swimmer up by id. The Apps Script derives a Sheet
+// swimmer's id from the Sheet name alone, so a sync that cannot match a dashboard swimmer (e.g. the date
+// of birth differs) used to add the Sheet's swimmer with the SAME id as the kept dashboard one; both
+// Edit dialogs then showed the first record, and Delete removed BOTH (UAT v2.12, V3 follow-up).
+// Repairs a list in place and returns how many ids it changed. The first record that is not
+// local-only keeps the id (that is the one a sync keeps matching); the others get "<id>_2", "_3"...
+function ensureUniqueIds(list) {
+  if (!Array.isArray(list)) return 0;
+  const groups = new Map(), used = new Set();
+  let changed = 0, auto = 0;
+  list.forEach(sw => {
+    if (!sw || typeof sw.id !== 'string' || !sw.id) return;
+    used.add(sw.id);
+    if (!groups.has(sw.id)) groups.set(sw.id, []);
+    groups.get(sw.id).push(sw);
+  });
+  const fresh = base => { let n = 2, nid; do { nid = `${base}_${n++}`; } while (used.has(nid)); used.add(nid); return nid; };
+  groups.forEach((g, id) => {
+    if (g.length < 2) return;
+    const keeper = g.find(sw => sw.source !== 'local') || g[0];
+    g.forEach(sw => { if (sw !== keeper) { sw.id = fresh(id); changed++; } });
+  });
+  list.forEach(sw => {
+    if (sw && (typeof sw.id !== 'string' || !sw.id)) {
+      let nid; do { nid = `sw_auto_${++auto}`; } while (used.has(nid)); used.add(nid); sw.id = nid; changed++;
+    }
+  });
+  return changed;
+}
+
 let SWIMMERS = lsGet('coach_SWIMMERS', []);
+if (ensureUniqueIds(SWIMMERS)) {
+  console.warn('Coach Dashboard: duplicate or missing swimmer ids were repaired.');
+  lsSet('coach_SWIMMERS', JSON.stringify(SWIMMERS));
+}
 
 let _cFull, _rFull;
 try { _cFull = parseQTFull(localStorage.getItem('coach_COUNTY_QT_FULL')   || localStorage.getItem('coach_COUNTY_QT')); }
@@ -2159,14 +2193,17 @@ function computePbImprovements(pbs) {
   });
   const improvements = [];
   Object.values(groups).forEach(list => {
-    list.sort((a, b) => a.pb.date.localeCompare(b.pb.date) || a.i - b.i);
+    // v2.12: one candidate per DAY - that day's fastest swim - so a heat and a final on the same
+    // day give a single improvement (the final if it was faster) whatever order they are stored in.
+    const byDate = new Map();
+    list.forEach(({ pb, i }) => {
+      const sec = timeToSec(pb.time), cur = byDate.get(pb.date);
+      if (!cur || sec < cur.sec || (sec === cur.sec && i < cur.i)) byDate.set(pb.date, { pb, sec, i });
+    });
     let bestSec = Infinity;
-    list.forEach(({ pb }) => {
-      const sec = timeToSec(pb.time);
-      if (sec < bestSec) {
-        bestSec = sec;
-        improvements.push(pb);
-      }
+    [...byDate.keys()].sort().forEach(date => {
+      const { pb, sec } = byDate.get(date);
+      if (sec < bestSec) { bestSec = sec; improvements.push(pb); }
     });
   });
   return improvements;
@@ -2786,6 +2823,7 @@ function applySwimmersUpload(clean, mode, note) {
   let saveOk;
   if (mode === 'merge') {
     const result = mergeSwimmers(clean, 'keep', { sourceIsAuthoritative: false });
+    if (result.blocked) { setDataError('❌ ' + describeCollisions(result.localDupes, result.sheetDupes, { action: 'Upload', otherLabel: 'uploaded file' })); return; }
     saveOk = lsSet('coach_SWIMMERS', JSON.stringify(SWIMMERS));
     // v2.9 feedback fix: "local kept" implied a coach-chosen outcome (matching the wording
     // sync uses, where "keep/hide/remove" is a real choice) - but a manual-upload merge always
@@ -2804,6 +2842,7 @@ function applySwimmersUpload(clean, mode, note) {
     if (saveOk) setDataStatus('success', `✅ Merged - ${result.added} added, ${result.updated} updated${result.matched ? `, ${result.matched} unchanged` : ''}${result.kept ? `, ${result.kept} not in this file (left as-is)` : ''}.${note}${sePbNote}${seSuppressedNote}`);
   } else {
     SWIMMERS = clean;
+    ensureUniqueIds(SWIMMERS);
     saveOk = lsSet('coach_SWIMMERS', JSON.stringify(SWIMMERS));
     if (saveOk) setDataStatus('success', `✅ Replaced - ${SWIMMERS.length} swimmer(s) loaded.${note}`);
   }
@@ -2873,21 +2912,38 @@ function applyQTUpload(prefix, rawData, mode, note) {
   renderCounty(); renderRegional(); renderOverview();
 }
 
-async function fetchWithRetry(url, options, maxAttempts, onRetry) {
-  let lastErr;
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    try {
-      const response = await fetch(url, options);
-      if (response.ok || response.status < 500 || attempt === maxAttempts) return response;
-      lastErr = new Error(`HTTP ${response.status}: ${response.statusText}`);
-    } catch (err) {
-      lastErr = err;
-      if (attempt === maxAttempts) throw err;
+function fetchWithRetry(url, options, maxAttempts, onRetry, extra) {
+  // extra (optional, v2.12): { retryStatuses: [404, ...] also retried (default: only 5xx and network
+  // errors), timeoutMs: abort an attempt that gets no response in time, delayMs: base back-off }.
+  const retryStatuses = (extra && extra.retryStatuses) || [];
+  const timeoutMs = extra && extra.timeoutMs;
+  const delayMs = (extra && extra.delayMs) || 600;
+  return (async () => {
+    let lastErr;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      let timer = null;
+      try {
+        const opts = { ...options };
+        if (timeoutMs && typeof AbortController !== 'undefined') {
+          const ctrl = new AbortController();
+          opts.signal = ctrl.signal;
+          timer = setTimeout(() => ctrl.abort(), timeoutMs);
+        }
+        const response = await fetch(url, opts);
+        clearTimeout(timer);
+        if (response.ok || attempt === maxAttempts || (response.status < 500 && !retryStatuses.includes(response.status))) return response;
+        lastErr = new Error(`HTTP ${response.status}: ${response.statusText}`);
+      } catch (err) {
+        clearTimeout(timer);
+        if (err && err.name === 'AbortError') { err = new Error('Timed out waiting for a response'); err.isTimeout = true; }
+        lastErr = err;
+        if (attempt === maxAttempts) throw err;
+      }
+      if (onRetry) onRetry(attempt, maxAttempts);
+      await new Promise(r => setTimeout(r, delayMs * attempt));
     }
-    if (onRetry) onRetry(attempt, maxAttempts);
-    await new Promise(r => setTimeout(r, 600 * attempt));
-  }
-  throw lastErr;
+    throw lastErr;
+  })();
 }
 
 async function syncQTFromGitHub(prefix) {
@@ -3065,6 +3121,7 @@ function applyBackupRestore({ swimmersResult, countyParsed, countyResult, region
 
   if (swimmersResult) {
     SWIMMERS = swimmersResult.clean;
+    ensureUniqueIds(SWIMMERS);
     const ok = lsSet('coach_SWIMMERS', JSON.stringify(SWIMMERS));
     if (!ok) anySaveFailed = true;
     notes.push(`${SWIMMERS.length} swimmer(s) restored${describeSanitiseIssues(swimmersResult.skipped, swimmersResult.datesDropped, swimmersResult.seDropped, swimmersResult.pbSourceDropped)}`);
@@ -3636,6 +3693,7 @@ function syncTimeToSec(t) {
 let _syncCloseTimer = null;
 
 function showSyncModal() {
+  clearDataStatus(); setDataError(null); // the Manage Data modal stays open underneath: drop its old message (e.g. "Cleared all swimmers")
   const savedUrl  = localStorage.getItem('coach_SYNC_URL') || SHEETS_SYNC_URL || '';
   const urlWarn   = document.getElementById('syncUrlWarning');
   const urlRow    = document.getElementById('syncUrlRow');
@@ -3696,6 +3754,76 @@ function saveSettings() {
   if (!saveOk) warnStorageFailureOnce();
 }
 
+// v2.12 (UAT 4.0): the Sheets sync used to wait indefinitely and then show a bare "HTTP 404". Google
+// Apps Script web apps are sometimes slow or briefly unavailable, so a sync is now tried up to 3
+// times (404 and 5xx are retried), each attempt gives up after SYNC_TIMEOUT_MS, and a failure says
+// what it probably is and what to do. `let`, not `const`, so tests can shorten them.
+let SYNC_TIMEOUT_MS = 90000;
+let SYNC_RETRY_DELAY_MS = 2000;
+const SYNC_MAX_ATTEMPTS = 3;
+// The Apps Script build this dashboard was written for (SCRIPT_BUILD in apps_script_v2.2.4.gs). A
+// different build is reported on every sync: a redeploy that did not take effect (pasted but not saved,
+// or a different deployment updated) otherwise looks like features silently not working.
+const EXPECTED_SCRIPT_BUILD = '2.2.4-b5';
+
+function describeSyncError(err) {
+  const msg = (err && err.message) ? String(err.message) : String(err);
+  const tries = `tried ${SYNC_MAX_ATTEMPTS} times`;
+  if (err && err.isTimeout) return `Timed out - Google didn't answer within ${Math.round(SYNC_TIMEOUT_MS / 1000)} seconds (${tries}). This is usually temporary: wait a minute, then click Sync Now to try again.`;
+  const http = /^HTTP (\d{3})/.exec(msg);
+  if (http) {
+    const code = +http[1];
+    if (code === 404) return `Google returned "404 Not Found" (${tries}). This is usually temporary - Google Apps Script can be slow or briefly unavailable - so wait a minute and click Sync Now to try again. If it keeps happening, check that the Web App URL in ⚙️ Settings matches the one under Deploy > Manage deployments in the Apps Script project.`;
+    if (code >= 500 || code === 429) return `Google reported a temporary problem (HTTP ${code}, ${tries}). Wait a minute and click Sync Now to try again.`;
+    if (code === 401 || code === 403) return `Google refused the request (HTTP ${code}). Check that the deployment's access is set so the dashboard can reach it, and that the Sync Token is right, then try again.`;
+    return `Google returned HTTP ${code}. Try again; if it keeps happening, check the Web App URL in ⚙️ Settings.`;
+  }
+  if (/failed to fetch|networkerror|load failed/i.test(msg)) return `Couldn't reach Google (a network problem, or the script is still starting up). Check your connection, then click Sync Now to try again.`;
+  return msg;
+}
+
+// v2.12: Apps Script v2.2.4 reports Results rows it had to skip (unknown event, unreadable time...) in
+// stats.skippedRows / stats.skippedTotal, because each may be a real swim lost to a data-entry slip.
+// Untrusted input like the rest of the payload: validated, capped, shown only via textContent.
+function sanitiseSkippedRows(stats) {
+  if (!stats || typeof stats !== 'object' || Array.isArray(stats)) return { total: 0, rows: [] };
+  const okReasons = ['event', 'course', 'time', 'columns'];
+  const rows = [];
+  (Array.isArray(stats.skippedRows) ? stats.skippedRows : []).forEach(x => {
+    if (rows.length >= 20 || !x || typeof x !== 'object' || !okReasons.includes(x.reason)) return;
+    rows.push({
+      row: Number.isFinite(x.row) ? x.row : null, rec: Number.isFinite(x.rec) ? x.rec : null, reason: x.reason,
+      name: typeof x.name === 'string' ? x.name.slice(0, 40) : '', detail: typeof x.detail === 'string' ? x.detail.slice(0, 160) : '',
+    });
+  });
+  const total = Number.isFinite(stats.skippedTotal) ? Math.max(stats.skippedTotal, rows.length) : rows.length;
+  return { total, rows };
+}
+
+// v2.12: Apps Script v2.2.4+ adds `warnings` to the payload - recent swims far faster than the
+// swimmer's previous best (usually a typo in the Sheet). Untrusted input like everything else in
+// the payload: validated field by field, capped, and only ever shown via textContent.
+function sanitiseSyncWarnings(raw) {
+  if (!Array.isArray(raw)) return [];
+  const timeRe = /^(\d{1,2}:)?\d{1,2}\.\d{2}$/;
+  const out = [];
+  raw.forEach(w => {
+    if (out.length >= 50 || !w || typeof w !== 'object') return;
+    if (typeof w.name !== 'string' || !w.name || !ALL_EVENTS.includes(w.event)) return;
+    if (typeof w.time !== 'string' || !timeRe.test(w.time)) return;
+    out.push({
+      name: w.name.slice(0, 60), event: w.event, course: w.course === 'L' ? 'L' : 'S',
+      date: (typeof w.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(w.date)) ? w.date : '',
+      time: w.time,
+      previousBest: (typeof w.previousBest === 'string' && timeRe.test(w.previousBest)) ? w.previousBest : '',
+      previousBestDate: (typeof w.previousBestDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(w.previousBestDate)) ? w.previousBestDate : '',
+      rec: Number.isFinite(w.rec) ? w.rec : null,
+      row: Number.isFinite(w.row) ? w.row : null,
+    });
+  });
+  return out;
+}
+
 async function startSync() {
   let syncUrl = (localStorage.getItem('coach_SYNC_URL') || SHEETS_SYNC_URL || '').trim();
   if (!syncUrl) {
@@ -3729,7 +3857,9 @@ async function startSync() {
 
   try {
     const url      = `${syncUrl}?token=${encodeURIComponent(token)}`;
-    const response = await fetch(url, { method: 'GET', credentials: 'omit' });
+    const response = await fetchWithRetry(url, { method: 'GET', credentials: 'omit' }, SYNC_MAX_ATTEMPTS, (attempt, max) => {
+      setSyncStatus('info', `⏳ Google didn't answer properly - trying again (attempt ${attempt + 1} of ${max})…`);
+    }, { retryStatuses: [404], timeoutMs: SYNC_TIMEOUT_MS, delayMs: SYNC_RETRY_DELAY_MS });
 
     if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
 
@@ -3743,7 +3873,14 @@ async function startSync() {
 
     const { clean: sheetSwimmers, skipped, datesDropped, seDropped, pbSourceDropped } = sanitiseSwimmersData(sheetSwimmersRaw);
     const sanitiseNote = describeSanitiseIssues(skipped, datesDropped, seDropped, pbSourceDropped);
+    const syncWarnings = sanitiseSyncWarnings(Array.isArray(data) ? null : data.warnings);
 
+    // v2.12: stop BEFORE anything is changed (and before any Remove prompt) if two swimmers would collapse to one.
+    const localDupes = findKeyCollisions(SWIMMERS), sheetDupes = findKeyCollisions(sheetSwimmers);
+    if (localDupes.length || sheetDupes.length) {
+      setSyncStatus('error', '❌ ' + describeCollisions(localDupes, sheetDupes, { action: 'Sync', otherLabel: 'Google Sheet' }));
+      return;
+    }
     const mergeMode = document.getElementById('syncMergeMode')?.value || 'keep';
     // Remove is the only option that destroys data, and it can do so by surprise: swimmers are
     // matched by name + date of birth, so a name edited in the Sheet makes a real swimmer look
@@ -3755,7 +3892,10 @@ async function startSync() {
         return;
       }
     }
-    const result    = mergeSwimmers(sheetSwimmers, mergeMode, { sourceIsAuthoritative: true });
+    // Full history only from Apps Script v2.2.4+ (payload version 2.4): an older script sends just the
+    // fastest swim per event, where "not in the Sheet's list" means nothing.
+    const fullHistory = !Array.isArray(data) && parseFloat(data.version) >= 2.4;
+    const result    = mergeSwimmers(sheetSwimmers, mergeMode, { sourceIsAuthoritative: true, fullHistory });
 
     const swSaveOk = lsSet('coach_SWIMMERS', JSON.stringify(SWIMMERS));
     const tsSaveOk = swSaveOk && lsSet('coach_SHEETS_LAST_SYNC', new Date().toISOString());
@@ -3797,6 +3937,39 @@ async function startSync() {
     const seSuppressedNote = result.sePbsSuppressed
       ? ` ℹ️ ${result.sePbsSuppressed} Google Sheet PB(s) for ${result.sePbsSuppressedNames.length} swimmer${result.sePbsSuppressedNames.length === 1 ? '' : 's'} (${result.sePbsSuppressedNames.slice(0,3).map(escHtml).join(', ')}${result.sePbsSuppressedNames.length > 3 ? ', …' : ''}) match a result already confirmed by the SE report under a different date, so they were not re-added. Update or delete those rows in the Sheet to stop this note appearing.`
       : '';
+    // v2.12: informational but visible (it holds the dialog open): recent Sheet swims far faster
+    // than the swimmer's previous best - almost always a typo. Already synced; nothing is blocked.
+    const warnLabel = w => `${w.name} ${w.event} ${w.course === 'S' ? 'SC' : 'LC'}: new swim ${w.time}${w.date ? ' on ' + fmtDate(w.date) : ''}${w.rec != null ? ' (record ' + w.rec + ')' : (w.row != null ? ' (Sheet row ' + w.row + ')' : '')}, previous best ${w.previousBest || 'unknown'}${w.previousBestDate ? ' on ' + fmtDate(w.previousBestDate) : ''}`;
+    const plausibilityNote = syncWarnings.length
+      ? ` ⚠️ ${syncWarnings.length} recent swim${syncWarnings.length === 1 ? '' : 's'} in the Google Sheet look unusually fast compared with the swimmer's previous best - check for typos: ${syncWarnings.slice(0, 3).map(warnLabel).join('; ')}${syncWarnings.length > 3 ? `; ...and ${syncWarnings.length - 3} more` : ''}. They have still been synced.`
+      : '';
+    // Which Apps Script is actually answering (a redeploy that did not take effect is otherwise
+    // invisible) and whether the "swim no longer in the Sheet" check could run (needs script v2.2.4+).
+    const scriptBuild = (!Array.isArray(data) && typeof data.build === 'string' && /^[\w.\-]{1,24}$/.test(data.build)) ? data.build : '';
+    const scriptLabel = scriptBuild ? 'Apps Script ' + scriptBuild : 'older script';
+    const buildNote = scriptBuild === EXPECTED_SCRIPT_BUILD ? '' :
+      ` ⚠️ The Apps Script answering this sync ${scriptBuild ? 'reports build ' + scriptBuild : 'has no build marker (an older deployment)'}, but this dashboard expects build ${EXPECTED_SCRIPT_BUILD}, so newer features may not work as described. In Apps Script: paste the latest code, press Save (Ctrl+S), then Deploy > Manage deployments > the pencil > Version: New version > Deploy, and check the Web App URL in ⚙️ Settings is that deployment's.`;
+    const skipInfo = sanitiseSkippedRows(Array.isArray(data) ? null : data.stats);
+    const skipLabel = x => `${x.rec !== null ? 'record ' + x.rec : (x.row !== null ? 'Sheet row ' + x.row : 'a row')}${x.name ? ' (' + x.name + ')' : ''}: ` +
+      (x.reason === 'event' ? `event "${x.detail}" is not recognised`
+       : x.reason === 'course' ? `course "${x.detail}" is not SC or LC`
+       : x.reason === 'columns' ? 'the row is too short to hold a time for this event' : x.detail);
+    const skippedNote = skipInfo.total
+      ? ` ⚠️ ${skipInfo.total} row${skipInfo.total === 1 ? '' : 's'} in the Results tab ${skipInfo.total === 1 ? 'was' : 'were'} skipped and may be real swims: ${skipInfo.rows.slice(0, 3).map(skipLabel).join('; ')}${skipInfo.total > 3 ? `; ...and ${skipInfo.total - 3} more` : ''}. Fix ${skipInfo.total === 1 ? 'it' : 'them'} in the Sheet and sync again.`
+      : '';
+    const dobChanges = result.dobChanges || [], lookalikes = result.lookalikes || [];
+    const dobNote = dobChanges.length
+      ? ` ℹ️ The date of birth differed from the Google Sheet's for ${dobChanges.length} swimmer${dobChanges.length === 1 ? '' : 's'} (${dobChanges.slice(0, 3).map(x => `${x.name}: dashboard ${fmtDate(x.from)}, Sheet ${fmtDate(x.to)}`).join('; ')}${dobChanges.length > 3 ? `; ...and ${dobChanges.length - 3} more` : ''}). ${dobChanges.length === 1 ? 'They were' : 'They were'} matched as the same swimmer, their PBs were kept, and the Sheet's date was used.`
+      : '';
+    const lookNote = lookalikes.length
+      ? ` ⚠️ ${lookalikes.length} swimmer${lookalikes.length === 1 ? '' : 's'} on the dashboard ${lookalikes.length === 1 ? 'is' : 'are'} not in the Google Sheet but share a name with a Sheet swimmer who has a different date of birth: ${lookalikes.slice(0, 3).map(x => `${x.name} (dashboard ${fmtDate(x.localDob)}, Sheet ${fmtDate(x.sheetDob)})`).join('; ')}${lookalikes.length > 3 ? `; ...and ${lookalikes.length - 3} more` : ''}. If it is the same child, correct the date of birth in the Sheet or in ✏️ Edit Swimmer so they can be matched; if they are different children, ignore this.`
+      : '';
+    const stalePbs = result.stalePbs || [];
+    const staleLabel = x => `${x.name} ${x.pb.event} ${x.pb.course === 'S' ? 'SC' : 'LC'} ${x.pb.time} on ${fmtDate(x.pb.date)}` +
+      (x.hint ? ` (the Sheet now has ${x.hint.kind === 'date' ? 'it on ' + fmtDate(x.hint.date) : x.hint.time + ' on that date'})` : ' (no longer in the Sheet)');
+    const staleNote = stalePbs.length
+      ? ` ⚠️ ${stalePbs.length} swim${stalePbs.length === 1 ? '' : 's'} on the dashboard ${stalePbs.length === 1 ? 'is' : 'are'} no longer in the Google Sheet (edited or deleted there). ${stalePbs.length === 1 ? 'It was' : 'They were'} kept, not removed: ${stalePbs.slice(0, 3).map(staleLabel).join('; ')}${stalePbs.length > 3 ? `; ...and ${stalePbs.length - 3} more` : ''}. If the Sheet is right, delete them in ✏️ Edit Swimmer.`
+      : '';
     setSyncStatus('success',
       `✅ ${sheetSwimmers.length} swimmers synced - ` +
       `${result.added} added, ${result.updated} updated` +
@@ -3804,7 +3977,7 @@ async function startSync() {
       (result.kept   ? `, ${result.kept} local kept`    : '') +
       (result.hidden ? `, ${result.hidden} hidden`       : '') +
       (result.removed? `, ${result.removed} removed`    : '') +
-      `.${qtNote}${sanitiseNote}${seConflictNote}${sePbNote}${seSuppressedNote}`
+      ` (${scriptLabel}, history check ${fullHistory ? 'on' : 'off'}).${buildNote}${qtNote}${sanitiseNote}${seConflictNote}${sePbNote}${seSuppressedNote}${skippedNote}${plausibilityNote}${staleNote}${dobNote}${lookNote}`
     );
 
     // v2.9 feedback fix, round 2: disabling auto-close (round 1's fix) solved "the warning
@@ -3816,7 +3989,7 @@ async function startSync() {
     // case the coach wants to sync again rather than just close.
     const closeBtn = document.querySelector('#syncModal .modal-close');
     const syncCloseBtn = document.getElementById('syncCloseBtn');
-    const hasNotableWarning = !!(qtNote || sanitiseNote || seConflictNote || sePbNote || seSuppressedNote);
+    const hasNotableWarning = !!(qtNote || sanitiseNote || seConflictNote || sePbNote || seSuppressedNote || plausibilityNote || staleNote || buildNote || skippedNote || dobNote || lookNote);
     if (hasNotableWarning) {
       if (closeBtn) closeBtn.textContent = '✕';
       if (syncCloseBtn) syncCloseBtn.style.display = '';
@@ -3841,7 +4014,7 @@ async function startSync() {
 
   } catch (err) {
     console.error('Sheets sync error:', err);
-    setSyncStatus('error', '❌ ' + err.message);
+    setSyncStatus('error', '❌ ' + describeSyncError(err));
   } finally {
     if (btn) btn.disabled = false;
     if (spinner) spinner.style.display = 'none';
@@ -3851,7 +4024,64 @@ async function startSync() {
 // The one definition of "is this the same swimmer" used when syncing from the Google Sheet:
 // trimmed, lower-cased name plus date of birth. mergeSwimmers() and the Remove warning below
 // both use it, so the swimmers the coach is warned about are exactly the ones that would be removed.
-function swimmerSyncKey(sw) { return `${(sw.name || '').toLowerCase().trim()}|${sw.dob}`; }
+// v2.12: uses the SAME name normalisation as the SE import (normaliseNameKey: NFKC, lower-case,
+// whitespace collapsed), so a stray double space, a non-breaking space or a decomposed accent in the
+// Sheet no longer makes a swimmer look "new" (a duplicate was added and the original looked missing -
+// known-bugs #10). It only ever adds matches, so no swimmer newly looks missing.
+function swimmerSyncKey(sw) { return `${normaliseNameKey(sw.name)}|${sw.dob}`; }
+
+// Groups of 2+ swimmers that share one key. A sync or merge cannot tell them apart: the merge maps by
+// key, so one of them (and all their PBs) would be silently dropped. Callers stop before changing anything.
+function findKeyCollisions(swimmers) {
+  const groups = new Map();
+  (swimmers || []).forEach(x => {
+    const k = swimmerSyncKey(x);
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(x);
+  });
+  return [...groups.values()].filter(g => g.length > 1);
+}
+// A date of birth "looks corrected" when it differs from another by exactly one of year / month / day, or by
+// a day/month swap (2011-07-06 vs 2011-06-07). Anything bigger is treated as a different date of birth.
+function dobsLookCorrected(a, b) {
+  const re = /^(\d{4})-(\d{2})-(\d{2})$/, x = re.exec(String(a)), y = re.exec(String(b));
+  if (!x || !y || a === b) return false;
+  const diff = (x[1] !== y[1]) + (x[2] !== y[2]) + (x[3] !== y[3]);
+  const swapped = x[1] === y[1] && x[2] === y[3] && x[3] === y[2];
+  return diff === 1 || swapped;
+}
+
+// known-bugs #25: the sync identifies a swimmer by name + date of birth, so a corrected DOB made a duplicate
+// (PBs split across two records). Pairs an unmatched Sheet swimmer with an unmatched dashboard swimmer when
+// they have the same Sheet-derived id AND the same normalised name AND a DOB that looks corrected, and the
+// pairing is unambiguous both ways. Never matches on name alone (a new child with a former swimmer's name
+// must not inherit their PBs). Returns Map(sheetSwimmer -> dashboardSwimmer).
+function pairDobCorrections(localList, sheetList) {
+  const sheetKeys = new Set(sheetList.map(swimmerSyncKey)), localKeys = new Set(localList.map(swimmerSyncKey));
+  const localOnly = localList.filter(l => !sheetKeys.has(swimmerSyncKey(l)));
+  const sheetOnly = sheetList.filter(sw => !localKeys.has(swimmerSyncKey(sw)));
+  const cand = new Map(), claimed = new Map();
+  sheetOnly.forEach(sw => {
+    if (typeof sw.id !== 'string' || !sw.id) return;
+    const nm = normaliseNameKey(sw.name);
+    const c = localOnly.filter(l => l.id === sw.id && normaliseNameKey(l.name) === nm && dobsLookCorrected(l.dob, sw.dob));
+    cand.set(sw, c);
+    c.forEach(l => claimed.set(l, (claimed.get(l) || 0) + 1));
+  });
+  const pairs = new Map();
+  cand.forEach((c, sw) => { if (c.length === 1 && claimed.get(c[0]) === 1) pairs.set(sw, c[0]); });
+  return pairs;
+}
+
+function describeCollisions(localDupes, otherDupes, opts) {
+  opts = opts || {};
+  const action = opts.action || 'Sync', otherLabel = opts.otherLabel || 'Google Sheet';
+  const list = groups => groups.map(g => `${g.map(x => x.name).join(' / ')} (born ${fmtDate(g[0].dob)})`).join('; ');
+  const parts = [];
+  if (localDupes && localDupes.length) parts.push(`These swimmers on the dashboard look like the same person (the same name apart from spacing, capitals or accents, and the same date of birth), so they could not be told apart and one of them would be lost: ${list(localDupes)}. Delete or correct one in ✏️ Edit Swimmer, then try again.`);
+  if (otherDupes && otherDupes.length) parts.push(`These look like the same swimmer in the ${otherLabel}${otherLabel === 'Google Sheet' ? "'s Basic Data tab" : ''}: ${list(otherDupes)}. Fix it there, then try again.`);
+  return `${action} stopped - nothing was changed. ${parts.join(' ')}`;
+}
 
 // Dry run for the "Remove" option: which dashboard swimmers would be deleted by a sync with
 // these Sheet swimmers? (Same rule mergeSwimmers() applies; nothing is changed here.)
@@ -3860,7 +4090,8 @@ function swimmerSyncKey(sw) { return `${(sw.name || '').toLowerCase().trim()}|${
 // ("Arty" vs "Artyom") rather than that the swimmer genuinely left.
 function findSwimmersRemovedBySync(sheetSwimmers) {
   const sheetKeys = new Set(sheetSwimmers.map(swimmerSyncKey));
-  return SWIMMERS.filter(sw => !sheetKeys.has(swimmerSyncKey(sw))).map(sw => {
+  const paired = new Set(pairDobCorrections(SWIMMERS, sheetSwimmers).values());
+  return SWIMMERS.filter(sw => !sheetKeys.has(swimmerSyncKey(sw)) && !paired.has(sw)).map(sw => {
     const lookalike = sheetSwimmers.find(x => x.dob === sw.dob && x.gender === sw.gender);
     return { sw, pbCount: (sw.pbs || []).length, possibleRename: lookalike ? lookalike.name : null };
   });
@@ -3879,13 +4110,22 @@ function buildRemoveWarning(removed) {
 function mergeSwimmers(sheetSwimmers, mergeMode, opts) {
   opts = opts || {};
   const sourceIsAuthoritative = opts.sourceIsAuthoritative !== false;
-  const stats    = { added: 0, updated: 0, matched: 0, kept: 0, hidden: 0, removed: 0, seConflicts: 0, seConflictNames: [], sePbsProtected: 0, sePbsProtectedNames: [], sePbsSuppressed: 0, sePbsSuppressedNames: [] };
+  // Defence in depth (callers also check first): never merge when two swimmers share a key.
+  const _localDupes = findKeyCollisions(SWIMMERS), _otherDupes = findKeyCollisions(sheetSwimmers);
+  if (_localDupes.length || _otherDupes.length) {
+    return { blocked: true, localDupes: _localDupes, sheetDupes: _otherDupes, added: 0, updated: 0, matched: 0, kept: 0, hidden: 0, removed: 0,
+             seConflicts: 0, seConflictNames: [], sePbsProtected: 0, sePbsProtectedNames: [], sePbsSuppressed: 0, sePbsSuppressedNames: [], stalePbs: [] };
+  }
+  const stats    = { added: 0, updated: 0, matched: 0, kept: 0, hidden: 0, removed: 0, seConflicts: 0, seConflictNames: [], sePbsProtected: 0, sePbsProtectedNames: [], sePbsSuppressed: 0, sePbsSuppressedNames: [], stalePbs: [], dobChanges: [], lookalikes: [] };
   const localKey = swimmerSyncKey;
   const localMap = {};
   SWIMMERS.forEach(sw => { localMap[localKey(sw)] = sw; });
   const sheetMap = {};
   sheetSwimmers.forEach(sw => { sheetMap[localKey(sw)] = sw; });
   const merged   = [];
+  // known-bugs #25: only for the authoritative Sheet sync (the id is derived from the Sheet name).
+  const dobPairs = sourceIsAuthoritative ? pairDobCorrections(SWIMMERS, sheetSwimmers) : new Map();
+  const pairedLocals = new Set(dobPairs.values());
 
   // Compares only the fields a coach would actually recognise as "changed" — not object
   // identity, not `source`/`hidden` (which get reset on every matched swimmer regardless of
@@ -3899,7 +4139,11 @@ function mergeSwimmers(sheetSwimmers, mergeMode, opts) {
 
   sheetSwimmers.forEach(sheetSw => {
     const key      = localKey(sheetSw);
-    const existing = localMap[key];
+    let existing = localMap[key];
+    if (!existing && dobPairs.has(sheetSw)) {
+      existing = dobPairs.get(sheetSw);   // same swimmer, corrected date of birth: the Sheet's date wins below
+      stats.dobChanges.push({ name: sheetSw.name, from: existing.dob, to: sheetSw.dob });
+    }
     if (existing) {
       // se (SE #): treated as authoritative from the Sheet, same trust tier as name/dob/gender,
       // when the sync source is itself authoritative. A pre-existing se that DIFFERS from the
@@ -3919,7 +4163,8 @@ function mergeSwimmers(sheetSwimmers, mergeMode, opts) {
         // sheetSw.se absent: leave any existing se untouched — the Sheet not having a value
         // yet doesn't mean the swimmer's SE # should be forgotten.
       }
-      const pbMergeResult = mergePbs(existing.pbs || [], sheetSw.pbs || []);
+      const pbMergeResult = mergePbs(existing.pbs || [], sheetSw.pbs || [], { fullHistory: !!opts.fullHistory && sourceIsAuthoritative });
+      (pbMergeResult.stale || []).forEach(x => { if (stats.stalePbs.length < 500) stats.stalePbs.push({ name: sheetSw.name, ...x }); });
       if (pbMergeResult.seProtected) { stats.sePbsProtected += pbMergeResult.seProtected; stats.sePbsProtectedNames.push(sheetSw.name); }
       if (pbMergeResult.seSuppressed) { stats.sePbsSuppressed += pbMergeResult.seSuppressed; stats.sePbsSuppressedNames.push(sheetSw.name); }
       const mergedSwimmer = {
@@ -3948,6 +4193,7 @@ function mergeSwimmers(sheetSwimmers, mergeMode, opts) {
   });
 
   SWIMMERS.forEach(localSw => {
+    if (pairedLocals.has(localSw)) return;   // already merged above
     if (sourceIsAuthoritative && localSw.source === 'sheet') {
       const key = localKey(localSw);
       if (sheetMap[key]) return;
@@ -3970,7 +4216,19 @@ function mergeSwimmers(sheetSwimmers, mergeMode, opts) {
     else { merged.push({ ...localSw, source: 'local', hidden: false }); stats.kept++; }
   });
 
+  if (sourceIsAuthoritative) {
+    // A dashboard swimmer not in the Sheet who shares a name with a Sheet swimmer of a different date of
+    // birth (not close enough to pair): possibly the same child with a mistyped DOB, so say so.
+    const sheetByName = new Map();
+    sheetSwimmers.forEach(sw => { const k = normaliseNameKey(sw.name); if (!sheetByName.has(k)) sheetByName.set(k, []); sheetByName.get(k).push(sw); });
+    SWIMMERS.forEach(l => {
+      if (pairedLocals.has(l) || sheetMap[localKey(l)] || stats.lookalikes.length >= 50) return;
+      const other = (sheetByName.get(normaliseNameKey(l.name)) || []).find(sw => sw.dob !== l.dob);
+      if (other) stats.lookalikes.push({ name: l.name, localDob: l.dob, sheetDob: other.dob });
+    });
+  }
   merged.sort((a, b) => a.name.localeCompare(b.name));
+  stats.idsRepaired = ensureUniqueIds(merged);
   SWIMMERS = merged;
   return stats;
 }
@@ -4015,40 +4273,74 @@ function mergeSwimmers(sheetSwimmers, mergeMode, opts) {
 // the existing SE# conflict warning's "never silent" principle) rather than auto-decided by
 // comparing digits. Two sources agreeing on the dated value, or the sheet simply not mentioning
 // that date at all, change nothing here — only a genuine same-date mismatch is counted.
-function mergePbs(localPbs, sheetPbs) {
-  const pbKey = pb => `${pb.event}|${pb.course}|${pb.date || ''}`;
+// v2.12 - a heat and a final on the same day are TWO swims. The key above now includes the time for
+// a dated swim, so same-day swims with different times are kept side by side (before this they
+// collapsed to one: a manual same-day pair lost one entry, and the Sheet's "faster wins" rule
+// silently overwrote the other). The same swim seen twice (same event, course, date AND time) is
+// still one swim, and the existing entry wins so its `source` stays sticky. SE protection is now
+// directional: a Sheet swim SLOWER than the SE-confirmed time on that date is added (plausibly the
+// heat); one FASTER is protected and counted (the SE report is the official best, so it cannot be
+// right). Known limit, unchanged in spirit: correcting a typo in the Sheet cannot remove the old
+// value from the dashboard (delete it in Edit Swimmer); it just stops being the current PB if slower.
+// Undated swims keep the original behaviour (fastest only).
+function mergePbs(localPbs, sheetPbs, opts) {
+  const secKey = pb => { const sec = syncTimeToSec(pb.time); return isFinite(sec) ? sec.toFixed(2) : String(pb.time); };
+  const dayKey = pb => `${pb.event}|${pb.course}|${pb.date || ''}`;
+  // A DATED swim is identified by event+course+date+TIME; an undated one only by event+course.
+  const pbKey  = pb => pb.date ? `${dayKey(pb)}|${secKey(pb)}` : dayKey(pb);
   const pbMap = {};
-  localPbs.forEach(pb => { pbMap[pbKey(pb)] = { ...pb }; });
-  let seProtected = 0, seSuppressed = 0;
-  // Second half of the SE protection, found when a coach replaced three made-up dates with
-  // SE's real ones and then re-synced: the Google Sheet still holds the OLD made-up-dated rows,
-  // and because the replaced records no longer exist under those dates, each Sheet row had
-  // nothing to match and was re-added as a brand-new swim - silently undoing the correction.
-  // A Sheet row is therefore treated as the SAME swim as an SE-confirmed entry (and not
-  // re-ingested) when nothing is on file under its own date AND an 'se' entry for the same
-  // event+course has the same time. Only 'se' entries are ever used for this, so ordinary
-  // Sheet-vs-manual data is untouched. Worst case if two genuinely separate swims share an
-  // identical time: the later Sheet row is not added, which cannot change a current PB.
-  const seTimeKeys = new Set();
-  localPbs.forEach(pb => { if (getPbSource(pb) === 'se') seTimeKeys.add(`${pb.event}|${pb.course}|${syncTimeToSec(pb.time)}`); });
-  sheetPbs.forEach(pb => {
-    const key      = pbKey(pb);
-    const existing = pbMap[key];
-    if (!existing && seTimeKeys.has(`${pb.event}|${pb.course}|${syncTimeToSec(pb.time)}`)) { seSuppressed++; return; }
-    if (existing && getPbSource(existing) === 'se') {
-      if (syncTimeToSec(pb.time) !== syncTimeToSec(existing.time)) seProtected++;
-      return; // SE-confirmed: keep exactly as recorded, never auto-overwritten here
-    }
-    const newSec   = syncTimeToSec(pb.time);
-    const oldSec   = existing ? syncTimeToSec(existing.time) : Infinity;
-    if (!existing || newSec <= oldSec) {
-      pbMap[key] = {
-        ...pb,
-        competition: (existing && existing.competition) ? existing.competition : pb.competition,
-      };
-    }
+  localPbs.forEach(pb => {
+    const k = pbKey(pb), ex = pbMap[k];
+    if (!ex) pbMap[k] = { ...pb };
+    else if (!pb.date && syncTimeToSec(pb.time) < syncTimeToSec(ex.time)) pbMap[k] = { ...pb };
   });
-  return { pbs: Object.values(pbMap), seProtected, seSuppressed };
+  let seProtected = 0, seSuppressed = 0;
+  const seByDay = {}, seTimeKeys = new Set();
+  localPbs.forEach(pb => {
+    if (getPbSource(pb) !== 'se' || !pb.date) return;
+    (seByDay[dayKey(pb)] = seByDay[dayKey(pb)] || []).push(syncTimeToSec(pb.time));
+    seTimeKeys.add(`${pb.event}|${pb.course}|${secKey(pb)}`);
+  });
+  sheetPbs.forEach(pb => {
+    const key = pbKey(pb);
+    if (!pb.date) {
+      // Undated: no date to tell swims apart, so the old rule stays - the faster one wins.
+      const ex = pbMap[key];
+      if (!ex || syncTimeToSec(pb.time) <= syncTimeToSec(ex.time)) {
+        pbMap[key] = { ...pb, competition: (ex && ex.competition) ? ex.competition : pb.competition };
+      }
+      return;
+    }
+    if (pbMap[key]) return; // the same swim is already on file: the existing entry wins (source stays sticky)
+    // Same time as an SE-confirmed swim under a different date: the same swim (v2.11 rule 2).
+    if (seTimeKeys.has(`${pb.event}|${pb.course}|${secKey(pb)}`)) { seSuppressed++; return; }
+    // On a date where SE has already confirmed a time: a SLOWER swim is plausibly the heat (added
+    // below); one FASTER than the official best cannot be right, so it is protected and counted.
+    const seDay = seByDay[dayKey(pb)];
+    if (seDay && syncTimeToSec(pb.time) < Math.min(...seDay)) { seProtected++; return; }
+    pbMap[key] = { ...pb };
+  });
+  // v2.12 (UAT 4.0.1): with full-history payloads the Sheet lists every swim, so a Sheet-sourced swim
+  // on the dashboard that the Sheet no longer lists was edited or deleted there. It is KEPT (never
+  // auto-deleted: the coach decides) but reported, with a hint if the Sheet now has the same swim
+  // under another date / time. Only dated 'gala' entries (the Sheet's own; no source = gala) are
+  // considered, never manual or SE ones, and only when the caller says the payload is full history.
+  const stale = [];
+  if (opts && opts.fullHistory) {
+    const sheetKeys = new Set(sheetPbs.filter(pb => pb.date).map(pbKey));
+    const localKeys = new Set(localPbs.filter(pb => pb.date).map(pbKey));
+    const newSheet  = sheetPbs.filter(pb => pb.date && !localKeys.has(pbKey(pb)));
+    localPbs.forEach(pb => {
+      if (!pb.date || getPbSource(pb) !== 'gala' || sheetKeys.has(pbKey(pb))) return;
+      const near = newSheet.filter(sp => sp.event === pb.event && sp.course === pb.course);
+      const moved = near.find(sp => secKey(sp) === secKey(pb) && sp.date !== pb.date);
+      const retimed = moved ? null : near.find(sp => sp.date === pb.date && secKey(sp) !== secKey(pb));
+      const hint = moved ? { kind: 'date', date: moved.date, time: moved.time }
+                 : retimed ? { kind: 'time', date: retimed.date, time: retimed.time } : null;
+      stale.push({ pb: { ...pb }, hint });
+    });
+  }
+  return { pbs: Object.values(pbMap), seProtected, seSuppressed, stale };
 }
 
 // ============================================================
@@ -4111,9 +4403,15 @@ function pbEntryMatches(pb, incoming) {
 
 function mergePbEntry(existingPbs, incoming) {
   const pbs = (existingPbs || []).slice();
-  const idx = pbs.findIndex(pb => pbEntryMatches(pb, incoming));
+  // v2.12: a swimmer can hold several entries for the same event+course+date (heat + final).
+  // Candidates = every same-identity entry; an entry with the SAME TIME wins outright (noop), and
+  // only if none matches is it a conflict - against the FASTEST candidate (the SE report lists the
+  // best time, so that is the one it describes). With a single candidate this is exactly the
+  // original behaviour.
+  const candidates = [];
+  pbs.forEach((pb, i) => { if (pbEntryMatches(pb, incoming)) candidates.push(i); });
 
-  if (idx === -1) {
+  if (candidates.length === 0) {
     const added = { event: incoming.event, course: incoming.course, time: incoming.time };
     if (incoming.date) added.date = incoming.date;
     if (incoming.competition) added.competition = incoming.competition;
@@ -4122,15 +4420,16 @@ function mergePbEntry(existingPbs, incoming) {
     return { pbs, outcome: 'add' };
   }
 
-  const existing = pbs[idx];
-  if (timeToSec(existing.time) === timeToSec(incoming.time)) {
+  const incSec = timeToSec(incoming.time);
+  if (candidates.some(i => timeToSec(pbs[i].time) === incSec)) {
     // No-op: return an UNMODIFIED copy — source is sticky and never changes on a match,
     // even if incoming.source differs from what's already stored (locked spec).
     return { pbs: (existingPbs || []).slice(), outcome: 'noop' };
   }
 
+  const idx = candidates.reduce((best, i) => (timeToSec(pbs[i].time) < timeToSec(pbs[best].time) ? i : best), candidates[0]);
   // Conflict: surfaced for a per-record coach decision, never auto-resolved either way.
-  return { pbs: (existingPbs || []).slice(), outcome: 'conflict', existingEntry: existing, incomingEntry: incoming, index: idx };
+  return { pbs: (existingPbs || []).slice(), outcome: 'conflict', existingEntry: pbs[idx], incomingEntry: incoming, index: idx };
 }
 
 // Applies a coach's decision on a mergePbEntry() 'conflict' outcome.
@@ -4367,11 +4666,36 @@ function rosterNameParts(rosterName, surnameNorm) {
   return null;
 }
 function forenamesSimilar(a, b) {
-  const x = normaliseNameKey(a).split(' ')[0], y = normaliseNameKey(b).split(' ')[0];
+  // Accents are folded HERE only (never in normaliseNameKey), so Artyóm/Artyom reads as "likely the same
+  // person" but can never make a name auto-match.
+  const fold = t => normaliseNameKey(t).normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const x = fold(a).split(' ')[0], y = fold(b).split(' ')[0];
   if (!x || !y) return false;
   if (x === y) return true;
   const [s, l] = x.length <= y.length ? [x, y] : [y, x];
   return s.length >= 2 && l.startsWith(s); // Arty / Artyom, Alex / Alexander
+}
+
+const SE_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+function seDisplayDate(iso) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso == null ? '' : iso));
+  return m ? `${+m[3]} ${SE_MONTHS[+m[2] - 1]} ${m[1]}` : String(iso == null ? 'unknown' : iso);
+}
+// Same year, and the month and day are each other's: 2011-07-06 vs 2011-06-07 (a DD/MM vs MM/DD slip).
+function seDobSwapped(a, b) {
+  const x = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(a)), y = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(b));
+  return !!(x && y && x[1] === y[1] && x[2] === y[3] && x[3] === y[2] && x[2] !== x[3]);
+}
+// Says exactly WHAT differs between a roster swimmer and the SE report's swimmer (never just "differs").
+function seIdentityDiff(r, se) {
+  const parts = []; let dobMismatch = null;
+  if (r.dob !== se.dob) {
+    const swapped = seDobSwapped(r.dob, se.dob);
+    dobMismatch = { roster: r.dob, se: se.dob, swapped };
+    parts.push(`the date of birth differs (roster ${seDisplayDate(r.dob)}, SE report ${seDisplayDate(se.dob)}${swapped ? ' - the day and month look swapped' : ''})`);
+  }
+  if (r.gender !== se.gender) parts.push(`the gender differs (roster ${r.gender}, SE report ${se.gender})`);
+  return { text: parts.join(' and '), dobMismatch };
 }
 
 function matchSeSwimmer(se, roster) {
@@ -4385,7 +4709,8 @@ function matchSeSwimmer(se, roster) {
       if (r.dob === se.dob && r.gender === se.gender) {
         return { status: 'matched-se', swimmer: r, nameDiffers: normaliseNameKey(r.name) !== seName };
       }
-      return { status: 'confirm', confidence: 'low', swimmer: r, reason: 'SE # matches but the date of birth or gender does not - check this is the same swimmer.' };
+      const diff = seIdentityDiff(r, se);
+      return { status: 'confirm', confidence: 'low', swimmer: r, reason: `SE # matches, but ${diff.text}. Check this is the same swimmer.`, dobMismatch: diff.dobMismatch };
     }
   }
 
@@ -4397,7 +4722,7 @@ function matchSeSwimmer(se, roster) {
       return { status: 'confirm', confidence: 'low', swimmer: r, reason: `Name and date of birth match, but the roster has SE # ${r.se} and the SE report says ${se.se}.` };
     }
     if (r.gender !== se.gender) {
-      return { status: 'confirm', confidence: 'low', swimmer: r, reason: 'Name and date of birth match, but gender differs.' };
+      return { status: 'confirm', confidence: 'low', swimmer: r, reason: `Name and date of birth match, but ${seIdentityDiff(r, se).text}.`, dobMismatch: null };
     }
     return { status: 'matched-name', swimmer: r };
   }
@@ -4640,6 +4965,7 @@ let _seImport = null; // wizard state; rebuilt fresh every time the modal opens
 
 function showSeImportModal() {
   closeFab();
+  clearDataStatus(); setDataError(null);
   _seImport = { step: 'files', files: null, parseError: null, matches: null, duplicates: null, decisions: {}, result: null };
   document.getElementById('seImportModal').classList.add('open');
   openModalA11y('seImportModal');
@@ -4803,7 +5129,7 @@ function seSetAllDupChoices(idx, choice) {
 }
 
 function seApplyImport() {
-  const summary = { added: 0, unchanged: 0, conflictsKept: 0, conflictsUpdated: 0, duplicatesSkipped: 0, datesCorrected: 0, seBackfilled: [], swimmersTouched: new Set(), skipped: [] };
+  const summary = { added: 0, unchanged: 0, conflictsKept: 0, conflictsUpdated: 0, duplicatesSkipped: 0, datesCorrected: 0, seBackfilled: [], swimmersTouched: new Set(), skipped: [], dobMismatches: [] };
   const toApply = _seImport.matches.filter(m => m.match.status === 'matched-se' || m.match.status === 'matched-name' || (m.match.status === 'confirm' && m._accepted));
 
   toApply.forEach(m => {
@@ -4811,6 +5137,7 @@ function seApplyImport() {
     const swIdx = SWIMMERS.findIndex(s => s.id === swId);
     if (swIdx === -1) { summary.skipped.push({ name: m.se.fullName, reason: 'Swimmer no longer on file.' }); return; }
     const sw = SWIMMERS[swIdx];
+    if (m.match.dobMismatch) summary.dobMismatches.push({ name: sw.name, ...m.match.dobMismatch });
     const decisionScope = m.se.se || swId;
 
     // seComputeOutcomes() is the SAME function the review screen's live preview calls - applying
@@ -4996,7 +5323,7 @@ function seRenderReviewStep() {
     </details>` : '';
 
   const confirmList = confirmable.length ? `<div class="se-import-step-title">Suggested matches - confirm each one</div>
-    <p style="font-size:0.74rem;color:var(--text3);margin-bottom:8px">Ticking a box imports PB times from the SE report into that roster swimmer's record. It never changes their Name, Date of Birth, Gender, or SE # - tick it only if you're confident it's the same person.</p>
+    <p style="font-size:0.74rem;color:var(--text3);margin-bottom:8px">Ticking a box imports PB times from the SE report into that roster swimmer's record. It never changes their Name, Date of Birth or Gender. If they have no SE # on the dashboard yet, the SE report's number is filled in. Tick it only if you're confident it's the same person.</p>
     <div class="se-import-list" data-keep="confirm">${confirmable.map((m, i) => {
       const idx = matches.indexOf(m);
       return `<div class="pb-event-row">
@@ -5150,7 +5477,8 @@ function seRenderSummaryStep() {
   return `
     <div class="se-import-step-title">Import complete</div>
     <ul style="margin:0 0 12px 18px;font-size:0.82rem;color:var(--text2);line-height:1.7">${lines.map(l => `<li>${l}</li>`).join('')}</ul>
-    ${s.skipped.length ? `<details data-keep="sumskipped" style="margin-bottom:10px"><summary style="cursor:pointer;font-size:0.78rem;color:var(--text3)">${s.skipped.length} swimmer(s) not imported (click for why)</summary>
+    ${s.dobMismatches && s.dobMismatches.length ? `<div style="font-size:0.8rem;color:var(--text2);padding:8px 10px;background:rgba(217,119,6,0.1);border-radius:6px;margin-bottom:10px;line-height:1.6"><strong>Date of birth differs from the SE report</strong> for ${s.dobMismatches.length} swimmer${s.dobMismatches.length === 1 ? '' : 's'}. The dashboard was not changed (age groups are worked out from the date on the dashboard), so please check the Google Sheet:<ul style="margin:6px 0 0 18px">${s.dobMismatches.map(x => `<li>${escHtml(x.name)}: dashboard ${escHtml(fmtDate(x.roster))}, SE report ${escHtml(fmtDate(x.se))}${x.swapped ? ' (the day and month look swapped)' : ''}</li>`).join('')}</ul></div>` : ''}
+    ${s.skipped.length ? `<details data-keep="sumskipped\" style="margin-bottom:10px"><summary style="cursor:pointer;font-size:0.78rem;color:var(--text3)">${s.skipped.length} swimmer(s) not imported (click for why)</summary>
       <ul class="se-import-detail-list" style="font-size:0.76rem;color:var(--text3)">${s.skipped.map(x => `<li>${escHtml(x.name)} - ${escHtml(x.reason)}</li>`).join('')}</ul></details>` : ''}
     ${!s.saveOk ? `<div style="color:var(--red);font-size:0.8rem;padding:8px 10px;background:rgba(220,38,38,0.08);border-radius:6px;margin-bottom:10px">⚠️ Applied for this session, but could not be saved to browser storage. Download a backup now.</div>` : ''}
     <div class="note">This import only added or reconciled what the SE report showed today - it's a starting point for ongoing history, not a full backfill of past results.</div>
