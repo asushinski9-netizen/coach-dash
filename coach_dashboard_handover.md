@@ -1,99 +1,101 @@
-# Coach Dashboard — Handover Document (v2.12 shipped → starting v2.13)
+# Coach Dashboard — Handover Document (v2.11 shipped → starting v2.12)
 
-**Files:** `index.html` (dashboard, title **v2.12.7**) and `apps_script_v2.2.4.gs` (**build 2.2.4-b5**). Both built, tested (**644 automated checks**) and signed off by the coach after a long UAT. **Nothing from v2.13 has been started.**
+**File:** `index.html` · **Last shipped version:** v2.11 (SE PB Report Import) — built, tested (392 automated checks) and signed off by the coach after a six-round UAT. **Nothing from v2.12 has been started.**
 
 ---
 
 ## 1. Read these first (in order)
 1. This document.
-2. `known-bugs-and-fixes.md` — open issues #14, #19, #20, #23, #27 (and the "needs a decision" items) are the v2.13 backlog.
-3. `architecture.md` (the v2.12 section) and `data-schema.md` (Sections 5, 10, 13).
-4. `se-pb-import-and-history-plan.md` (Section 7 now records v2.12 as done) and `se-matching-scenarios.md` (Section 4b).
-5. `session-log.md` v2.12 entry — it records what went wrong along the way; the lessons are in Section 7 below.
+2. `se-pb-import-and-history-plan.md` (v3) — especially Section 7 (proposed roadmap and the design questions for v2.12).
+3. `se-matching-scenarios.md` — how swimmers are matched today (needed for the Suggested-matches revisit).
+4. `known-bugs-and-fixes.md` — open issues #10–#18 are all new or changed this session.
+5. `architecture.md` (the v2.11 sections) and `data-schema.md` (Sections 10–12).
 
 ---
 
-## 2. Roadmap
+## 2. Roadmap — CONFIRMED by the coach; design questions still open before v2.12 coding starts
 
-| Version | Scope | Status |
+The v2.11 handover said v2.12 would be the dedicated **Swimmers tab**. UAT changed the picture, and the coach has **confirmed this re-ordering**:
+
+| Version | Proposed scope | Status |
 |---|---|---|
-| **v2.12 "Data foundations"** | every dated result from the Sheet (heats and finals), same-day swim model, warnings, script robustness; matcher improvements; shared name key + collision stop; unique ids; DOB-aware matching; small fixes | **SHIPPED** |
-| **v2.13 "Tabs"** | Dedicated **Swimmers** tab (known-bugs #9) + a **Data** tab (import / export / backup / SE review); the backlog items below that fit navigation and settings | **Confirmed in principle; scope still to agree (Section 5)** |
-| **v2.14 "Progression"** | visual progression / all-results view (swim-dash model), built on the full history from v2.12 | Confirmed as the sequence; detailed scope nearer the time |
+| **v2.12 "Data foundations"** | (a) Apps Script emits every dated Results row; (b) revisit Suggested-match rules + confirm-tick wording; (c) small items: anonymise fixtures/placeholder SE #, shared name key decision, configurable test paths | **Confirmed** |
+| **v2.13 "Tabs"** | Dedicated Swimmers tab (known-bugs #9) + a Data tab (import/export/backup/SE review) | **Confirmed (moved from v2.12)** |
+| **v2.14 "Progression"** | Visual progression / all-results view (swim-dash model) | Confirmed as the sequence; detailed scope to be agreed nearer the time |
 
-**Schema rename before v2.14 (proposal):** `pbs` no longer means "personal bests" (it holds every dated swim). Renaming it is a schema-version change across the swimmer JSON, backup bundle, Apps Script payload and UI wording (known-bugs #19). Do it as its own session just before Progression, not mixed into another feature.
+**Why the Swimmers tab moved:** the coach's progression goal needs the data model right first (the plan's own principle: the UI follows a correct model). The Google Sheet feed currently carries only the fastest result per event+course (known-bugs #11), so SE-sourced history and Sheet-sourced history are inconsistent; fixing that is a two-file change (Apps Script + dashboard) with its own deployment risk (#8), so it should not share a session with navigation/layout work. Nothing was dropped; the separate Data tab the coach deferred in v2.11 UAT is paired with the Swimmers tab in v2.13 because both touch the tab bar (which already wraps on mobile).
+
+**Still open — settle these with the coach (with your recommendations) before writing v2.12 code (plan Section 7.3):** same-day heat/final identity; how far back to import Sheet history; payload size/quota; handling obvious Sheet typos; whether Hot Right Now keeps its improvements-only meaning; and the Suggested-match questions in `se-matching-scenarios.md` Section 4.
 
 ---
 
-## 3. What v2.12 shipped (one screen)
-- **Apps Script 2.2.4:** emits **every** non-DQ Results row (not only the fastest). Same-day swims (heat + final) stay separate, told apart by time; exact duplicate rows collapse; undated rows keep fastest-only; ordered by date then record number (Results column A). Payload `version 2.4` adds `build`, `warnings` (recent swims >15% faster than the swimmer's previous best; flagged swims never become the baseline) and `stats` (skipped rows with record numbers and reasons, timing split). Reads the Results tab in 250-row chunks and stops after 2 blank chunks (the Sheet has ~3,100 formula rows below the data; every read costs roughly 1.7–2.5 ms **per row**).
-- **Dashboard:** `mergePbs` keys by event+course+date+**time**; SE-confirmed protection is directional (a slower same-day Sheet swim is a plausible heat and is added; a faster one is protected and flagged); `mergePbEntry` matches the same-day entry with the same time before declaring a conflict; Hot Right Now = one improvement per event per day; swims the Sheet no longer lists are **reported, never deleted**; sync retries 404/5xx/timeouts (3 attempts, 90 s each) with plain-language errors; the sync message shows the script build and warns loudly if it is not `EXPECTED_SCRIPT_BUILD`; skipped Results rows, unusually fast swims and orphaned swims are listed by record number.
-- **Matching:** sync uses the same `normaliseNameKey` as the SE import and **stops (nothing changed)** if two swimmers would collapse to one key; swimmer **ids are forced unique** (and repaired on load); a swimmer whose DOB differs only slightly (one field, or a day/month swap) is matched via same id + name and the Sheet's DOB wins; the SE import shows both DOBs with a day/month-swap hint and lists DOB mismatches in its summary; accents are folded for first-name similarity only; wording fixed (#12).
-- **Small:** stale Manage Data status cleared when starting a Sync/SE import; test paths configurable (`INDEX_FILE`, `FIXTURE_DIR`, `SE_SAMPLE_DIR`).
+## 3. What v2.11 shipped (one screen)
+- **SE PB Report Import** (Manage Data → 🏁 card → wizard modal): load an SC and/or LC Top Times `.xlsx`; native reader with hard limits; row-shape parser (handles `(Boy 12)` and `(Open/Boy 12)` headers); tiered matching (auto / suggested / skipped); time conflicts (keep / use SE) and probable duplicates (skip / **replace date** / import separately) with bulk buttons; live review counts that always equal what apply does; Apply only live when something would change; SE # filled in only where blank; everything through `sanitiseSwimmersData()`; never creates/deletes/hides a swimmer, never touches squad/name/DOB.
+- **`mergePbs()` protects SE-confirmed PBs** from the Google Sheet (same-date mismatch kept + counted; same-time/different-date Sheet rows not re-added) — reported in sync and Upload-Merge messages.
+- **Google Sync "Remove" confirms** first, listing swimmers/PBs and flagging possible renames; Keep/Hide/Remove wording rewritten.
+- Add/Edit Swimmer: "＋ Add PB entry" floats in the sticky footer.
 
 ---
 
 ## 4. Decisions already locked — do not re-litigate
-All of the v2.11 list still holds (never scrape SE; no third-party scripts; `mergePbEntry` spec; PB history model; the SE import is forward-accumulating; it never writes DOB/gender/squad/name/hidden or creates/removes swimmers; replace-date is an update; preview and apply share `seComputeOutcomes()`; Apply is live only when it changes something; UI text uses hyphens, not em-dashes; Backup & Restore is Replace-only; Remove-mode sync keeps its confirmation). New in v2.12:
-- **A heat and a final are two swims.** Same-day entries are separate; the identity of a dated swim is event + course + date + time. `mergePbEntry` was extended **additively** (single-entry behaviour identical). The record number (Results column A) is for ordering and labels only; it is never saved on a swimmer and never part of identity.
-- **The Sheet is authoritative for name, DOB, gender and (when present) SE #.** A DOB that differs slightly is corrected from the Sheet; a bigger difference is **not** merged (it could be a different child) but is warned about. **Never match on name alone.**
-- **Never delete data automatically on a sync.** Orphaned (edited/deleted-in-Sheet) swims are reported; the coach deletes them.
-- **Swimmer ids are unique** (`ensureUniqueIds`), enforced on load, merge, upload-replace and restore. Edit/Delete look up by id.
-- **A stale Apps Script deployment must be loud.** Bump `SCRIPT_BUILD` in the script **and** `EXPECTED_SCRIPT_BUILD` in `index.html` (and the page title) whenever either changes behaviour.
-- **The "wrong script build" warning stays visible in any future maintenance mode;** only the routine `(Apps Script …, history check …)` suffix may be hidden (#27).
-- **Tests first, shown red, then green** (Section 7). Estimates are labelled as estimates until measured.
+- **Never scrape SE's site**; the SE import reads the coach's own exports only.
+- **No SheetJS / no third-party scripts**; keep the native reader (limits are deliberate).
+- **`mergePbEntry()` spec is locked and implemented** (identity `event+course+date`; sticky `source`; per-record conflicts). v2.12 must not reimplement it; use it.
+- **PB history model:** many dated entries per event+course; `source` `gala|se|manual` (absent = `gala`); current PB and "improvement" always computed live, never stored.
+- **The SE import is a forward-accumulating feed, not a backfill**, and the UI says so.
+- **The import never writes DOB, gender, squad, name, hidden; never creates/removes swimmers; fills a blank SE # only.** The Sheet remains authoritative for identity fields.
+- **Replace date is an update, not a new PB.** Every SE entry lands in exactly one summary bucket; tests assert the sum.
+- **Preview and apply share `seComputeOutcomes()`** — keep it that way.
+- **Apply is live only when it would change something.**
+- **UI text uses hyphens, not em-dashes** (house style the coach enforces; sweep the static HTML as well as the script).
+- Backup & Restore stays Replace-only; Remove-mode sync keeps its confirmation.
 - Per-coach auth, `doPost`/header token and the other old items stay deferred unless the coach asks.
 
 ---
 
-## 5. v2.13 scope — to agree with the coach before coding (with my recommendations)
-Core (confirmed in principle): Swimmers tab (#9), Data tab.
-Candidates that fit the same UI work — ask which to include:
-1. **Filter footer counts (#20):** count and group swimmers excluded by the Gender/Age/Squad/name filters (reuse the existing details list). Small; fits the tab work. *Recommend: include.*
-2. **Sync message redesign (#23):** a one-line summary plus one collapsible section per note type (a table for skipped rows by record number), built from DOM nodes. The probes read `#syncStatus.textContent` and assert no element children for hostile text; adjust those to check for no injected markup. *Recommend: include, probably living in the Data tab.*
-3. **System Settings / maintenance mode (#27):** extend the existing ⚙️ Settings modal (URL/token): diagnostics on/off, tab visibility, theme/colours, logo (validated image stored as a data URI), default sync mode, default Hot Right Now days and Bubble margin, retry/timeout, storage meter, backup reminder. Decide: per-browser only, or in the backup bundle (never the token). *Recommend: its own sub-step after Swimmers/Data, so the navigation changes land first.*
-4. **Merge-duplicates tool:** nothing merges two records that are already duplicates (clean-up today = delete the Sheet's record, correct the other's DOB). *Recommend: include if the Swimmers tab gets a per-swimmer actions menu.*
-5. **Acknowledge a warning** (#14 suppressed-rows note, unusually fast swims, "no longer in Sheet") so a handled item stops repeating. Needs a small persisted key. *Ask.*
-6. **Apps Script speed:** if the ~6 s `testRun` / 8–11 s sync becomes a problem, the Sheets Advanced Service reads values + colours in one request; it needs a one-off setting in the Apps Script project. *Only if the coach asks.*
+## 5. v2.12 scope detail (re-ordering confirmed)
+
+### (a) Apps Script: every dated result
+- Today `buildPayload()` keeps one entry per swimmer+event+course (`if (!swimmer.pbs[key] || timeSec < swimmer.pbs[key].sec)`). Replace with: emit every non-DQ Results row as `{event, course, time, date}` (date required; skip undated), de-duplicated on event+course+date (keep the faster for that date — decide heats/finals), payload `version` bump (e.g. `"2.4"`), keep `se` etc. unchanged. New file `apps_script_v2.2.4.gs`; keep the testable-pure-function pattern (`parseBasicDataRow` precedent: extract row→entry mapping so it can be tested in Node).
+- Dashboard: no schema change; `mergePbs` already keys by event+course+date and handles many entries; `computePbImprovements` keeps Hot Right Now improvements-only. **Verify with a multi-entry swimmer** (standing rule). Confirm the two SE protections still behave when the Sheet now brings *all* history (expect many more suppressed rows until the Sheet's made-up dates are corrected — consider whether the note needs an "acknowledge" option, known-bugs #14).
+- Operational: redeploy so the URL stays valid (#8), mention quota (#3), tell the coach to keep a backup first. The coach will need to redeploy the script; plan a UAT step for it.
+- Add Sheet-side test data covering: slower later swim, two swims before a sync, same-day duplicates, DQ rows.
+
+### (b) Revisit Suggested matches
+Use `se-matching-scenarios.md` Section 4 as the agenda (SE # outranking name; showing both DOBs on a DOB-mismatch suggestion; DOB-typo unmatched; gender inconsistency H vs M; accent/nickname similarity; hyphen/order surnames; "pick one" for two candidates; per-swimmer exclude for auto-matches). Any rule change must update `test_se_matching_matrix.js` expectations, regenerate the doc table (`node test_se_matching_matrix.js --table`) and be logged. Fix the confirm-tick wording (#12: a blank SE # *is* filled in).
+
+### (c) Small items
+Anonymise fixtures and the `e.g. 1745801` placeholder (#16); decide whether sync and import share one normalised name key (#10 — if sync changes, add a collision check so no swimmer is silently dropped); make test fixture paths configurable and put fixtures in a `fixtures/` folder (#17).
 
 ---
 
 ## 6. Things to know before touching the code
-- **Markers:** the SE pure logic sits between `// SE PB REPORT IMPORT — parser + matcher (v2.11)` and `// SE PB REPORT IMPORT — UI orchestration (v2.11)`; tests extract between them, so it may only use `timeToSec`, `ALL_EVENTS` and its own helpers (no `fmtDate`: that is why `seDisplayDate` exists inside the block). Keep the markers.
-- **`mergePbs(local, sheet, opts)` returns `{ pbs, seProtected, seSuppressed, stale }`**; `opts.fullHistory` enables stale detection. **`mergeSwimmers()` returns** `added, updated, matched, kept, hidden, removed, seConflicts…, sePbs…, stalePbs, dobChanges, lookalikes, idsRepaired` — or `{ blocked: true, localDupes, sheetDupes … }` when two swimmers share a key (callers must check `blocked`).
-- **`swimmerSyncKey()`** = `normaliseNameKey(name)|dob`; `findSwimmersRemovedBySync()` must keep using it and must exclude `pairDobCorrections()` results so the Remove warning equals what is deleted.
-- **`fetchWithRetry(url, options, attempts, onRetry, extra)`**: `extra = { retryStatuses, timeoutMs, delayMs }`; the GitHub QT sync passes none (a 404 there is not retried). `SYNC_TIMEOUT_MS` / `SYNC_RETRY_DELAY_MS` are `let` so tests can shorten them.
-- **Wizard redraws rebuild `innerHTML`.** Any new scrolling list or `<details>` in the SE wizard needs a `data-keep` key. Tests must re-query `#seImportFileInput` after `showSeImportModal()`.
-- `getPbSource(pb)` for source; `getCurrentPbMap(pbs)` for the current PB; `computePbImprovements` is per-day. Every `localStorage` write through `lsSet`; all PB writes through `sanitiseSwimmersData()`.
-- Untrusted payload fields (`warnings`, `stats.skippedRows`, `build`) are validated and capped and shown only via `textContent`; keep it that way.
-- Mobile CSS conventions (16 px inputs, single-column grids, 40 px heights) apply to anything new; jsdom cannot evaluate `@media`, so use source-text assertions. For anything that depends on browser behaviour, **say it is unverified until the coach tests it** and add a coach test step.
-- **Apps Script deployment (this cost two UAT rounds):** paste the code → **Save (Ctrl+S)** → run `testRun` → Deploy → Manage deployments → pencil on the deployment whose URL is in Settings → Version: **New version** → Deploy. "New deployment" gives a new URL and breaks sync (#8). `testRun` runs the editor's code, not the deployed version, so it proves nothing about what the web app serves; the sync message's build suffix does.
-- **Results tab:** do **not** delete rows in Data Entry (it leaves `#REF!` in Results); clear them. The script lists skipped rows in `stats.skippedRows`.
+- **Markers:** the v2.11 pure logic sits between `// SE PB REPORT IMPORT — parser + matcher (v2.11)` and `// SE PB REPORT IMPORT — UI orchestration (v2.11)`; tests extract between them. Keep the markers.
+- **`mergePbs()` returns `{ pbs, seProtected, seSuppressed }`** (not an array). Only `mergeSwimmers()` calls it.
+- **Wizard redraws rebuild `innerHTML`.** Any new scrolling list or `<details>` in the wizard needs a `data-keep` key or the coach will see it reset on every click (this took three attempts to find). Tests must re-query `#seImportFileInput` after any `showSeImportModal()`.
+- `swimmerSyncKey()` is the sync's "same swimmer" definition; `findSwimmersRemovedBySync()` must keep using it so the Remove warning equals what is deleted.
+- `getPbSource(pb)` for source; `getCurrentPbMap(pbs)` for current PB — don't write new loops.
+- Every `localStorage` write through `lsSet`, read through `lsGet`. All PB writes through `sanitiseSwimmersData()`.
+- Mobile CSS conventions (16 px inputs, single-column grids, 40 px heights) apply to anything new; jsdom can't evaluate `@media` — use source-text assertions.
+- For anything that depends on browser behaviour (scroll, focus), **say it is unverified until the coach tests it** and add a coach test step; reproduce first where possible.
 
 ---
 
 ## 7. Setting up a fresh workspace and testing
+The sandbox working directory can be lost mid-session (it happened in v2.11); rebuild from the delivered files.
 ```
-git clone https://github.com/asushinski9-netizen/coach-dash.git work && cd work
+mkdir work && cd work && cp <delivered files> .          # index.html, tests, fixtures
+cp county_qt.json regional_qt.json swimmers_pb.json .    # needed by test_overview.js / probe_pbs_widening.js
 npm install jsdom
-# test_se_import_core.js needs the two Bob/Bib sample .xlsx (not in the repo); rebuild them from se_sample_rows.json:
-python3 - <<'EOF'
-import json, openpyxl, os
-os.makedirs('/tmp/xl', exist_ok=True); d = json.load(open('se_sample_rows.json'))
-for k, n in (('sc', 'SHORT'), ('lc', 'LONG')):
-    wb = openpyxl.Workbook(); ws = wb.active; ws.title = 'Top Times(0)'
-    [ws.append(r) for r in d[k]]
-    wb.save(f'/tmp/xl/ALL_COMPETITIVE_{n}_COURSE_-_Copy.xlsx')
-EOF
-export SE_SAMPLE_DIR=/tmp/xl/      # also INDEX_FILE, FIXTURE_DIR
-for f in test_overview.js probe_pbs_widening.js probe_se_import.js test_se_import_core.js test_se_matching_matrix.js \
-         probe_same_day.js test_apps_script_v224.js probe_stage2.js probe_ids.js probe_dobmatch.js; do node $f | grep -E "FAIL|ALL CHECKS"; done
+# test_se_import_core.js also needs python3 + openpyxl and the two real sample .xlsx at /mnt/user-data/uploads/
+# (use separate cp commands, not {a,b} brace shorthand, in a plain sh shell)
+for f in test_overview.js probe_pbs_widening.js probe_se_import.js test_se_import_core.js test_se_matching_matrix.js; do node $f | grep -E "FAIL|ALL CHECKS"; done
 ```
-**Baseline to reproduce before any edit:** 74 + 57 + 171 + 65 + 25 + 85 + 78 + 38 + 20 + 31 = **644 checks, 0 failures**. (`test_se_import_core.js` runs against rebuilt workbooks, not the original SE exports; the coach's real Arty `.xlsx` match `arty_rows.json` cell for cell.)
+**Baseline to reproduce before any edit:** 74 + 57 + 171 + 65 + 25 = **392 checks, 0 failures**. `index.html` ≈ 5,181 lines / 290,777 bytes.
 
-**Logo integrity (mandatory):** `grep "^const LOGO_DATA_URI" index.html | sha256sum` must print `501b76d31b1c5e3d89aaabb39dd4e4ae752d5fb0915a27e49a4ccf72b35b142f`. Record it before editing and re-check before every hand-back. Never retype the base64; edit in place with exact-match replacements (the patch scripts assert each old string occurs exactly once).
+**Logo integrity (mandatory):** `grep "^const LOGO_DATA_URI" index.html | sha256sum` must print `501b76d31b1c5e3d49aaabb39dd4e4ae752d5fb0915a27e49a4ccf72b35b142f`. Record it before editing, re-check before every hand-back. Never stub or retype the base64; edit in place with `str_replace`/scripts.
 
-**Process rules that paid off:** re-run baselines first; write the test first and **show it failing for the right reason**; reproduce each reported bug before fixing (the duplicate-id bug was only understood by reproducing it); test every PB read/write path with a multi-entry-per-event+course swimmer; check disabled/empty/"nothing to do" states; ask the coach before changing tested sync/merge behaviour; **measure before optimising** (two performance theories this session were wrong until the coach's `testRun` numbers showed otherwise); run long shell steps with `timeout` and write patch scripts to files; give every build a visible marker (title + script build).
+**Process rules that paid off:** re-run baselines first; reproduce each reported bug and check the fix fails without the change; test every PB read/write path with a multi-entry-per-event+course swimmer; write the dedicated probe alongside the feature; check disabled/empty/"nothing to do" states, not just the happy path; ask the coach before changing tested sync/merge behaviour.
 
 ---
 
@@ -101,25 +103,22 @@ for f in test_overview.js probe_pbs_widening.js probe_se_import.js test_se_impor
 
 | File | Version | Notes |
 |---|---|---|
-| `index.html` | v2.12.7 | signed off |
-| `apps_script_v2.2.4.gs` | 2.2.4 build b5 | signed off; **replaces** `apps_script_v2.2.3.gs` (keep the old file for reference; `test_se_field.js` still targets it) |
-| `test_overview.js` 74, `probe_pbs_widening.js` 57 (3 checks changed on purpose in v2.12), `probe_se_import.js` 171, `test_se_import_core.js` 65, `test_se_matching_matrix.js` 25 (scenario T is now "high") | | existing suites |
-| `probe_same_day.js` 85, `test_apps_script_v224.js` 78, `probe_stage2.js` 38, `probe_ids.js` 20, `probe_dobmatch.js` 31 | new in v2.12 | |
-| `se_sample_rows.json`, `arty_rows.json`, `swimmers_pb__3__-_Copy.json` | fixtures | the coach confirmed they are anonymised |
-| `user_test_script_v2.12.md` | v2.12 | coach script; all rounds passed |
-| docs: `architecture.md`, `data-schema.md`, `known-bugs-and-fixes.md`, `session-log.md`, `project-brief.md`, `README.md`, `se-pb-import-and-history-plan.md`, `se-matching-scenarios.md` | v2.12 | updated |
-| `probe_se_field.js`, `test_se_field.js`, `probe_backup_restore.js` | earlier | not re-run (stale or untouched code paths) |
+| `index.html` | v2.11 | signed off |
+| `apps_script_v2.2.3.gs` | v2.2.3 | unchanged; v2.12 replaces it |
+| `test_overview.js` 74, `probe_pbs_widening.js` 57, `probe_se_import.js` 171, `test_se_import_core.js` 65, `test_se_matching_matrix.js` 25 | v2.11 | the current suite |
+| `se_sample_rows.json`, `arty_rows.json`, `swimmers_pb__3__-_Copy.json` | fixtures | **personal data — keep out of the public repo** |
+| `user_test_script_v2.11.md` | v2.11 | coach script (UAT passed; step 3.3 corrected after sign-off to say an SE # match auto-matches) |
+| `se-matching-scenarios.md` | new | scenario table + v2.12 questions |
+| docs: `architecture.md`, `data-schema.md`, `known-bugs-and-fixes.md`, `session-log.md`, `project-brief.md`, `README.md`, `se-pb-import-and-history-plan.md` | v2.11 / plan v3 | updated; older detail (v2.8–v2.10) is condensed — git history has the previous full text |
+| `probe_se_field.js`, `test_se_field.js`, `probe_backup_restore.js` | earlier | not re-run in the v2.11 sweep (no touched code paths) |
 
 ---
 
 ## 9. Guidance already given to the coach (keep repeating)
-- Download a fresh backup right after any real SE import you intend to keep, and before anything destructive: Restore replaces everything.
-- Be careful with the sync's **Remove**: it deletes whole swimmers not found in the Sheet by name + date of birth, with all their PBs (a confirmation lists them). Keep is the safe choice.
+- Download a fresh backup right after any real SE import you intend to keep — Restore replaces everything.
+- Be careful with the sync's **Remove**: it deletes whole swimmers not found in the Sheet by name + date of birth, with all their PBs (a confirmation now lists them). Keep is the safe choice.
 - The SE import is forward-accumulating; it cannot bring in a time a swimmer has since beaten.
-- **Clear, never delete, rows in Data Entry** (deleting leaves `#REF!` in Results).
-- Correcting a mistyped time or date in the Sheet **cannot remove the old value from the dashboard**; the sync lists it ("no longer in the Google Sheet") and the coach deletes it in ✏️ Edit Swimmer.
-- A far-faster swim is warned about for up to 60 days; a genuine big improvement will keep being mentioned until it ages out.
-- After any Apps Script change: Save, then deploy as a **New version** of the existing deployment, then check the build shown at the end of the sync message.
+- Rows in the Google Sheet that duplicate an SE-confirmed swim under an old made-up date will keep producing an informational note on each sync until corrected in the Sheet.
 
 ## 10. Suggested opening prompt for the next session
-"Continuing the Coach Dashboard. Read `coach_dashboard_handover.md`, then `known-bugs-and-fixes.md` (open items) and `architecture.md`'s v2.12 section. v2.12 is shipped and signed off. Scope this session: v2.13 'Tabs'. Rebuild the workspace, reproduce the 644-check baseline, record the logo hash, then raise the Section 5 questions with your recommendations before writing any code, and write tests first."
+"Continuing the Coach Dashboard. Read `coach_dashboard_handover.md`, then the plan (Section 7) and `se-matching-scenarios.md`. The v2.12 / v2.13 / v2.14 re-ordering is confirmed (handover Section 2). Scope this session: v2.12 (a)/(b)/(c). Rebuild the workspace, reproduce the 392-check baseline, record the logo hash, then raise the Section 2 questions with your recommendations before writing any code."
