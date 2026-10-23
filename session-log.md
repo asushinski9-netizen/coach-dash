@@ -51,47 +51,19 @@ Docs written after UAT: `architecture.md`, `data-schema.md`, `known-bugs-and-fix
 
 ---
 
-## v2.12 — October 2026 — Data foundations
-
-**Scope, agreed up front:** (a) Apps Script emits every dated result; (b) revisit the suggested-match rules and wording; (c) small items. Questions with recommendations were raised first; the coach's answers changed the design (heats and finals on one day are routine, so "fastest wins" was dropped for a same-day-swims model).
-
-### Setup
-The files arrived as text, not on disk; the repo was cloned from GitHub and the baseline reproduced (392 checks; the original Bob/Bib sample `.xlsx` were not supplied, so `test_se_import_core.js` ran against workbooks rebuilt from `se_sample_rows.json`). Logo hash recorded and re-checked at every hand-back.
-
-### Build and UAT (Stage 1: every swim)
-Tests written first and shown failing (19 failures against the old code), then the script and dashboard. Round 1 findings: sync slow then a bare HTTP 404; an orphaned swim after a Sheet date edit; the unusually-fast warning picked only one of a heat and a final; record numbers wanted in warnings. Round 2: orphan note and warning still not seen, **because the deployed web app was an older script build than `testRun` showed** (pasted but not saved before deploying). That led to a build marker in every sync message and a loud mismatch warning (v2.12.2/3). Further rounds: skipped Results rows surfaced by record number with plain-language reasons (the coach's `#REF!` and wrong-column entries); warnings now flag every far-faster swim; the Results read was optimised by measurement (see below).
-
-### Stage 2 and bugs found in UAT
-Shared name key + collision stop; matcher shows both DOBs and a day/month-swap hint; accent folding; wording fixed; test paths configurable. UAT then found **two swimmer records sharing one id** (the Apps Script builds `id` from the Sheet name), so Edit showed the same record for both and **Delete removed both**; reproduced, fixed with `ensureUniqueIds` (repair on load), and the underlying gap (a corrected DOB makes a duplicate) fixed with DOB-aware matching (design approved by the coach). A stale Manage Data status line was fixed.
-
-### Honest notes on what went wrong along the way
-- I did not bump the page title for the first v2.12 build, so a stale cached file and the new one looked identical; the coach had to report it.
-- Two performance theories were wrong until measured: "one timezone call per row" (processing was 0.7 s; the read was 10.6 s) and "reading fewer columns helps" (the cost is per row; the column effect is mild). The final design (chunked forward read) came from the coach's per-step timings. Sync went from 17-18 s to 8-11 s; `testRun` from 12.9 s to 6.5 s.
-- My tests did not cover "an unmatched Sheet swimmer gets the same id as a kept dashboard swimmer", so the duplicate-id data-loss bug reached UAT. Added (`probe_ids.js`) along with the missing standing rule: look for any lookup-by-key that assumes uniqueness.
-- Several of my own test-harness mistakes (Date realm across the vm sandbox, equality helpers that ignored new timing fields, an escaping slip in a patch script that hung a command for 5 minutes) cost time but not correctness.
-- `mergePbEntry` is a "locked spec" function; it was extended additively and this is recorded as a deliberate decision.
-
-### Behaviour changed on purpose (existing checks updated)
-`probe_pbs_widening.js` three checks (a same-date different time is now added beside the existing swim, and SE protection is directional); `test_se_matching_matrix.js` scenario T (accents: needs-review → likely); `probe_se_import.js` the SE # wording check.
-
-### Testing
-644 checks, all passing: `test_overview.js` 74, `probe_pbs_widening.js` 57, `probe_se_import.js` 171, `test_se_import_core.js` 65, `test_se_matching_matrix.js` 25, `probe_same_day.js` 85, `test_apps_script_v224.js` 78, `probe_stage2.js` 38, `probe_ids.js` 20, `probe_dobmatch.js` 31. Coach UAT (`user_test_script_v2.12.md`) passed every step.
-
-### What did NOT happen
-No Swimmers/Data tabs, no System Settings, no `pbs` rename, no merge-duplicates tool, no change to the SE import's file handling. Backup & Restore needed no change.
-
-### Hand-off
-Docs updated: `coach_dashboard_handover.md` (rewritten for v2.13), `architecture.md`, `data-schema.md`, `known-bugs-and-fixes.md`, `se-matching-scenarios.md`, `se-pb-import-and-history-plan.md`, `project-brief.md`, `README.md`. Open backlog: known-bugs #14, #19, #20, #23, #27.
-
----
-
-## Files — current state (v2.12)
+## Files — current state (v2.11)
 
 | File | Version | Description |
 |---|---|---|
-| `index.html` | v2.12.7 | Dashboard: same-day swims, robust sync, matching/identity fixes |
-| `apps_script_v2.2.4.gs` | 2.2.4 build b5 | every dated result, warnings, stats, chunked read (replaces v2.2.3) |
-| `probe_same_day.js`, `test_apps_script_v224.js`, `probe_stage2.js`, `probe_ids.js`, `probe_dobmatch.js` | new | v2.12 suites (252 checks) |
-| `test_overview.js`, `probe_pbs_widening.js`, `probe_se_import.js`, `test_se_import_core.js`, `test_se_matching_matrix.js` | updated | existing suites (392 checks) |
-| `user_test_script_v2.12.md` | v2.12 | coach script (UAT passed) |
-| `coach_dashboard_handover.md`, `architecture.md`, `data-schema.md`, `known-bugs-and-fixes.md`, `project-brief.md`, `README.md`, `se-pb-import-and-history-plan.md`, `se-matching-scenarios.md` | v2.12 | updated |
+| `index.html` | v2.11 | Dashboard (~5,180 lines): SE import, `mergePbs` protections, Remove confirmation, UX fixes |
+| `apps_script_v2.2.3.gs` | v2.2.3 | Unchanged since v2.9 (v2.12 will replace it) |
+| `test_overview.js`, `probe_pbs_widening.js` | v2.11 | Existing suites (the latter updated for `mergePbs`'s new return shape) |
+| `probe_se_import.js` | new | Wired-wizard probe, 171 checks |
+| `test_se_import_core.js` | new | Parser/matcher/reader tests extracted from `index.html`, 65 checks |
+| `test_se_matching_matrix.js` | new | Pins every matching scenario; `--table` regenerates the doc table |
+| `se_sample_rows.json`, `arty_rows.json`, `swimmers_pb__3__-_Copy.json` | fixtures | Rows read from real exports / a real roster — **personal data; keep out of the public repo** (Open Issue #16) |
+| `user_test_script_v2.11.md` | v2.11 | Coach-facing manual test script (UAT passed) |
+| `se-matching-scenarios.md` | new | What auto-matches / is suggested / is skipped, and v2.12 questions |
+| `se-pb-import-and-history-plan.md` | v3 | Plan, corrections, proposed roadmap |
+| `architecture.md`, `data-schema.md`, `known-bugs-and-fixes.md`, `project-brief.md`, `README.md`, `coach_dashboard_handover.md` | v2.11 | Updated this session |
+| `probe_se_field.js`, `test_se_field.js`, `probe_backup_restore.js`, `user_test_script_v2.9/2.10.md` | earlier | Unchanged |
