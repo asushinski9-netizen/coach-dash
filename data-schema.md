@@ -1,4 +1,6 @@
-# Coach Dashboard — Data Schemas (v2.11)
+# Coach Dashboard — Data Schemas (v2.12)
+
+**v2.12 changes no persisted field either**, but changes what the data means: `pbs` now holds **every dated swim** (heats, finals, non-PBs), so the name is a misnomer (rename planned, known-bugs #19); **swimmer `id`s are guaranteed unique**; the Apps Script payload is now `version "2.4"` (Section 5, new Section 13 for the Results tab). Earlier text:
 
 **v2.11 changes no persisted schema.** The swimmer root object and PB entry are exactly as in v2.10. What is new: `source: "se"` (reserved in v2.10) is now *written* — by the SE PB Report Import — and several in-memory structures used by the import are documented in Section 12 (they are never saved). The Apps Script payload is unchanged (still `version "2.3"`); a change to it is planned for v2.12 (Section 10). Section 11 documents the SE report file format the importer reads.
 
@@ -34,7 +36,7 @@
 
 | Field | Type | Required | Values / Notes |
 |---|---|---|---|
-| `id` | string | yes | `"sw_"` + timestamp for manual; `"sh_"` + sanitised name for Sheet-sourced. Not validated by the sanitiser (open issue #5) |
+| `id` | string | yes | `"sw_"` + timestamp for manual; `"sh_"` + sanitised name for Sheet-sourced. **Unique across the list (v2.12.6, `ensureUniqueIds`): a duplicate gets `<id>_2`, a missing one `sw_auto_N`.** Edit/Delete look swimmers up by id. Not otherwise validated by the sanitiser (open issue #5) |
 | `name` | string | yes | `Firstname Lastname`. The SE importer **never changes it** |
 | `dob` | string | yes | ISO `YYYY-MM-DD`. **Never written by the SE import**; used both for age brackets and as the safety anchor when matching |
 | `gender` | string | yes | `"Boys"`/`"Girls"` exactly. Never written by the SE import |
@@ -57,7 +59,7 @@ Squad values and colours are unchanged from v2.10 (Development, Junior, Senior, 
 | `competition` | string | no | Free text. From the SE report it is the report's meet name — **hard-truncated at 30 characters in many SE exports but not all** (a 36-character name exists in real data), so never assume a length. `mergeCompetitionField()` only treats an incoming value as truncated if it is exactly 30 characters and a prefix of a longer stored value |
 | `source` | string | no | `"gala"` (Google Sheets sync; also the read-time default for any entry without the field, via `getPbSource()`), `"manual"` (Add/Edit Swimmer), `"se"` (**SE PB Report Import, written since v2.11**). Validated against these three values; an invalid value drops just the field |
 
-**Several entries per event+course are normal.** "Current PB" is the fastest across the array, recomputed live (`getCurrentPbMap`); "was an improvement" is `computePbImprovements`. **Record identity for merging is `event + course + date`** (never time).
+**Several entries per event+course are normal.** "Current PB" is the fastest across the array, recomputed live (`getCurrentPbMap`); "was an improvement" is `computePbImprovements`. **Record identity:** `event + course + date` is the identity `mergePbEntry` (the SE import) matches on, and an entry with the **same time** on that date wins; since v2.12 a day may legitimately hold several entries (heat + final), so the Sheet merge (`mergePbs`) identifies a dated swim by `event + course + date + time` (undated: `event + course`, fastest only).
 
 **How `source: "se"` is treated by the merge code (v2.11):**
 - `mergePbEntry()` (the SE import's merge): `noop` keeps the stored `source` (sticky); a conflict resolved as "Use SE report" replaces time/source/competition.
@@ -68,6 +70,12 @@ Used by upload, sync, backup restore **and the SE import's apply step**. Drops t
 
 ---
 
+### 1.2 `replaced` (optional, v2.12.8)
+On a PB entry with `source: "se"`: array of time strings (same format as `time`) the coach overrode with the SE time for that event+course+date via "Use SE report". Used only by `mergePbs()` to avoid re-adding that exact Sheet swim on a later sync. Validated by the sanitiser (well-formed times only; field dropped if none), preserved by Edit Swimmer. Absent everywhere else.
+
+### 1.3 `removed` (optional, v2.12.10)
+On a PB entry with `source: "se"`: array of `{ date, time }` rows the coach deleted alongside an SE replacement ("Use SE report and remove the other copy"). Used only by `mergePbs()` so a later Sheet sync does not re-add those exact rows. Validated by the sanitiser (ISO date and well-formed time; field dropped if none), preserved by Edit Swimmer.
+
 ## 2. QT Data Files (`county_qt.json` / `regional_qt.json`)
 Unchanged: `{meta:{title,dateFrom,dateTo}, times:[{gender,course,event,age,qualify,consider}]}` (legacy plain array still accepted via `parseQTFull`). Age strings — County `10+11, 12…16, 17+`; Regional `11/12, 13…17, 18+`. Validated by `sanitiseQTData`. GitHub sync URLs unchanged.
 
@@ -75,13 +83,16 @@ Unchanged: `{meta:{title,dateFrom,dateTo}, times:[{gender,course,event,age,quali
 `50/100/200/400/800/1500 Free`, `50/100/200 Back`, `50/100/200 Breast`, `50/100/200 Fly`, `100/200/400 IM`. Unchanged.
 
 ## 4. Google Sheet Structure (unchanged since v2.9)
-(The Apps Script is bound to the club's Sheet, so no Sheet ID is stored in the dashboard; unchanged.) "Basic Data": A name, B M/F, C DOB (DD/MM/YYYY), D squad, E "SE #". "Results": one row per swim with cumulative split columns; DQ rows are yellow-filled and skipped. **Important for v2.12:** the Apps Script reads every Results row but keeps only the fastest per swimmer+event+course (Section 10).
+(The Apps Script is bound to the club's Sheet, so no Sheet ID is stored in the dashboard; unchanged.) "Basic Data": A name, B M/F, C DOB (DD/MM/YYYY), D squad, E "SE #". "Results": one row per swim with cumulative split columns; DQ rows are yellow-filled and skipped. **Results columns (0-based):** A record no., B `Lastname, Firstname`, C M/F flag (unused), D event, E date, F SC/LC, then split/cumulative pairs; the final cumulative column is `6 + 2*(distance/50) - 1`. See Section 13.
 
-## 5. Apps Script Payload (unchanged — `version "2.3"`)
+## 5. Apps Script Payload (`version "2.4"` since v2.12)
 ```json
-{ "version": "2.3", "generated": "…", "count": 62, "swimmers": [ { "id","name","dob","gender","source","pbs":[{event,course,time,date}], "squad"?, "se"? } ] }
+{ "version": "2.4", "build": "2.2.4-b5", "generated": "…", "count": 72,
+  "swimmers": [ { "id","name","dob","gender","source","pbs":[{event,course,time,date}], "squad"?, "se"? } ],
+  "warnings": [ { "name","event","course","date","time","previousBest","previousBestDate","rec","row" } ],
+  "stats": { "rows","rowsRead","lastCol","ms","msRead","msValues","msBg","msParse","dq","blank","event","course","columns","time","unknownSwimmer","duplicates","undated","skippedTotal","skippedRows":[{ "row","rec","reason","name","detail" }] } }
 ```
-PB entries carry no `source` (treated as `gala`). Because of the collapse above, `pbs` has **at most one entry per event+course**.
+`pbs` carries **every** non-DQ dated swim (ordered by date, then record number); same-day swims with different times are separate entries; an exact duplicate row collapses; undated rows keep only the fastest per event+course. Entries carry no `source` (treated as `gala`). `warnings` and `stats` are informational and **untrusted on the dashboard side** (validated, capped, shown as text). A v2.3 payload (fastest only, no `build`) is still read; the dashboard then labels the script "older" and turns off the orphaned-swim check.
 
 ## 6. localStorage Key Map
 No new key in v2.11. `coach_SWIMMERS`, `coach_COUNTY_QT_FULL`, `coach_REGIONAL_QT_FULL` (+ legacy keys), `coach_theme`, `coach_SYNC_URL`, `coach_SYNC_TOKEN`, `coach_SHEETS_LAST_SYNC`, `coach_COUNTY_QT_LAST_SYNC`, `coach_REGIONAL_QT_LAST_SYNC`, `coach_HOT_CUTOFF_DAYS`, `coach_BUBBLE_MARGIN` — unchanged. A cancelled "Remove" sync writes nothing (and does not update `coach_SHEETS_LAST_SYNC`). The import wizard's state is in memory only.
@@ -94,13 +105,8 @@ Unchanged since v2.8: `{ version:"coach-dashboard-backup-1", generated, swimmers
 
 ---
 
-## 10. PLANNED, NOT IMPLEMENTED — v2.12 (scope confirmed; design questions still open; see `se-pb-import-and-history-plan.md` Section 7)
-
-**Apps Script full dated history.** Today's collapse (`if (!swimmer.pbs[key] || timeSec < swimmer.pbs[key].sec)` in `buildPayload()`) means a slower later swim is never synced and two swims before a sync yield only the faster. Proposal: a new script version emits **every** non-DQ Results row as a dated entry (payload `version` bump, e.g. `"2.4"`), keeping the old shape readable. The dashboard side needs no schema change (`pbs` already holds many dated entries; `mergePbs` already keys by event+course+date; Hot Right Now is improvements-only). Questions to settle first: same-day heat/final identity, how far back to import, payload size/quota, handling of obvious Sheet typos, DQ handling. This is a prerequisite for the planned progression tab.
-
-Nothing else in the persisted schema is planned to change.
-
----
+## 10. IMPLEMENTED in v2.12 — Apps Script full dated history
+Delivered as `apps_script_v2.2.4.gs` (Section 5). Decisions: a heat and a final on one day are two swims (identity includes the time); the record number orders and labels but is not saved; undated rows keep the fastest only; DQ rows (yellow) stay excluded; typos are surfaced (`warnings`) rather than hidden. Still open: renaming `pbs` (known-bugs #19), a way to acknowledge a handled warning (#14), and a merge tool for already-duplicated swimmers (#25 note).
 
 ## 11. SE report file format (input; not persisted)
 
@@ -138,3 +144,8 @@ Baker, Bob: 18/10/2013  (Boy 12) 1234567                                        
   seBackfilled[], skipped[{name, reason}], saveOk }
 // invariant: added + datesCorrected + unchanged + duplicatesSkipped + conflictsKept + conflictsUpdated = results in the file
 ```
+
+## 13. The Results / Basic Data tabs as the script reads them (v2.12)
+- **Basic Data** (rows from 3): A name `Lastname, Firstname`, B M/F, C DOB `DD/MM/YYYY`, D squad, E SE #.
+- **Results** (data from row 3; ~66 columns wide; the tab has ~3,100 formula rows below the data): A record number, B name, C M/F flag (ignored), D event (`50 FS` … `400 IM`), E date (a real date cell; a text date is treated as undated), F `SC`/`LC`, then split/cumulative columns. The time used is the **final cumulative** cell for the event's distance; a time typed in an earlier column is reported as a skipped row ("a time (…) is in the 150 column"). Name-cell background yellow = DQ (skipped). Rows are read in 250-row chunks until 2 consecutive blank chunks.
+- Results is driven by formulas from **Data Entry**: deleting a Data Entry row leaves `#REF!` in the matching Results row (reported as an unreadable time). Clear rows instead.

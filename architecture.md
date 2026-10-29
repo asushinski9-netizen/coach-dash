@@ -1,12 +1,14 @@
-# Coach Dashboard — Architecture (v2.11)
+# Coach Dashboard — Architecture (v2.12)
 
 ## Overview
 
-Single HTML file (`index.html`, ~5,180 lines, ~284 KB). No build step, no runtime dependencies: vanilla JS in the page itself. All state lives in `localStorage`. Three independent data sources — Swimmers (Google Sheets sync), County QT, Regional QT (GitHub sync) — each syncable, uploadable, downloadable and clearable from one "📤 Manage Data" modal, plus a "🗄️ Full Backup & Restore" card (v2.8) and, new in v2.11, a "🏁 SE PB Report Import" card that opens its own wizard modal.
+Single HTML file (`index.html`, ~5,510 lines, ~316 KB). No build step, no runtime dependencies: vanilla JS in the page itself. All state lives in `localStorage`. Three independent data sources — Swimmers (Google Sheets sync), County QT, Regional QT (GitHub sync) — each syncable, uploadable, downloadable and clearable from one "📤 Manage Data" modal, plus a "🗄️ Full Backup & Restore" card (v2.8) and, new in v2.11, a "🏁 SE PB Report Import" card that opens its own wizard modal.
 
 The Overview tab is the default tab. County/Regional/editor tabs render lazily on first switch.
 
 **v2.11 in one paragraph:** the official Swim England PB report import. A coach loads one or both Top Times `.xlsx` exports; a dependency-free reader and a row-shape parser turn them into swimmers with dated results; a tiered matcher links each to a dashboard swimmer (auto / suggested / skipped); `seComputeOutcomes()` — one function shared by the live review preview and the apply step — classifies every result against `mergePbEntry()`; the coach resolves time conflicts and probable duplicates; apply writes only PBs (and a blank SE #) through the existing sanitiser. Alongside it: `mergePbs()` now protects SE-confirmed results from the Google Sheet (two rules), the Google Sync "Remove" option asks for confirmation, and several UX fixes found in a five-round coach UAT. Nothing in the swimmer schema changed; `source: "se"` (reserved in v2.10) is now written for the first time.
+
+**v2.12 in one paragraph:** the Google Sheet feed now carries **every dated swim** and the dashboard treats a heat and a final on one day as two swims. Apps Script 2.2.4 (payload 2.4) emits all non-DQ Results rows, reads the tab in chunks, and adds `build`, `warnings` and `stats`. On the dashboard `mergePbs`, `mergePbEntry` and `computePbImprovements` were reworked for same-day swims; sync gained retry/timeout handling, a script-build check, skipped-row / unusually-fast / orphaned-swim reports, a shared name key with a collision stop, guaranteed-unique swimmer ids, and DOB-aware matching. The SE import's matcher shows both dates of birth on a mismatch. `source: "se"` handling is unchanged. The swimmer schema is unchanged apart from the rule that ids are unique (the `pbs` field now holds every swim; renaming it is planned, known-bugs #19).
 
 ---
 
@@ -97,6 +99,28 @@ Applies only auto-matched swimmers and confirm-tier matches the coach ticked. Pe
 
 ---
 
+## v2.12 — Every dated swim, and a more robust sync
+
+### Apps Script 2.2.4 (`apps_script_v2.2.4.gs`, build `SCRIPT_BUILD`)
+Pure, Node-testable functions (the test fakes SpreadsheetApp for `buildPayload`): `parseResultRow(row, bg, ss, sheetRow)` → `{skip, detail}` or a swim; `addResultEntry(swimmer, e)` (key = event|course|date|time for a dated swim; undated = event|course, fastest only); `computeWarnings(map, today)`; `buildOutput`. `buildPayload` reads Results **forward in 250-row chunks** and stops after 2 blank chunks (`CHUNK_ROWS`, `MAX_BLANK_CHUNKS`; a gap of more than 500 consecutive blank rows would hide the rows below it), then reads the background of the name column only (DQ yellow). Measured on the coach's Sheet: every read costs ~1.7–2.5 ms **per row** (a narrower column block did not help), which is why the old "scan then read" cost ~13 s.
+- **Order:** by date, then record number (column A) or Sheet row; **warnings** use the same order. The record number is never saved on a swimmer.
+- **Warnings:** a recent swim (60 days) more than 15% faster than the *established* best (swims not themselves flagged; swims older than the window always update the best); each swim of a day is compared with the best from before that day. Capped at 50.
+- **Payload 2.4:** `{version, build, generated, count, swimmers, warnings, stats}`; each swim is still `{event, course, time, date}`. `stats`: row counts, `skippedRows` (≤20: Sheet row, record no., reason, name, plain-English detail incl. "a time (…) is in the 150 column"), `skippedTotal`, `ms`, `msRead`, `msValues`, `msBg`, `msParse`, `rows`, `rowsRead`, `lastCol`.
+
+### Same-day swims in the dashboard
+- `mergePbs(local, sheet, opts)`: dated swim identity = event+course+date+**time** (`syncTimeToSec().toFixed(2)`, so "83.90" = "1:23.90"); an identical swim already on file wins (source sticky); undated entries keep the old fastest-wins rule. SE-confirmed (`source:'se'`) entries: a Sheet swim with the same time under another date is suppressed (v2.11 rule 2); on a date where SE has a time, a **faster** Sheet swim is protected and counted, a **slower** one is added (plausibly the heat). With `opts.fullHistory` it also returns `stale`: Sheet-sourced (`gala`/no source) dated entries the Sheet no longer lists, with a `hint` when the Sheet has the same swim under another date/time. Nothing is ever deleted.
+- `mergePbEntry`: candidates = all same event+course+date entries; any with the same time → `noop`; else `conflict` against the **fastest** candidate. One candidate = original behaviour.
+- `computePbImprovements`: per event+course, only each **day's fastest** swim can be an improvement.
+
+### Sync robustness (`startSync`)
+`fetchWithRetry(..., extra)` with `retryStatuses [404]`, per-attempt `timeoutMs` (AbortController), back-off; 3 attempts; `describeSyncError()` turns 404 / 5xx / 401-403 / timeout / network failure into plain-language advice; the GitHub QT sync passes no `extra`. After the merge the message is assembled from: counts + `(<script build>, history check on|off)`, then notes in this order: **build mismatch** (`EXPECTED_SCRIPT_BUILD`), QT/sanitise/SE notes, **skipped Results rows** (`sanitiseSkippedRows`), **unusually fast swims** (`sanitiseSyncWarnings`), **orphaned swims**, **DOB changed**, **same-name different-DOB**. Any note holds the dialog open (`hasNotableWarning`). All payload-supplied text is validated, capped, and written with `textContent`.
+
+### Matching and identity
+- `swimmerSyncKey = normaliseNameKey(name)|dob` (shared with the SE import). `findKeyCollisions` / `describeCollisions`: `startSync` stops **before any Remove prompt** and changes nothing if two dashboard swimmers or two Sheet rows share a key; `mergeSwimmers` also refuses (`{blocked:true}`) so upload-merge is protected too.
+- `ensureUniqueIds(list)`: first non-local record keeps an id, others get `<id>_2`…; missing ids get `sw_auto_N`. Runs on load (and saves), after every merge, upload-replace and restore. (Cause of the old bug: the Apps Script builds `id` from the Sheet name only, so an unmatched Sheet swimmer duplicated the kept one's id; Edit/Delete look up by id.)
+- `pairDobCorrections(local, sheet)` + `dobsLookCorrected(a,b)`: an unmatched Sheet swimmer is paired with an unmatched dashboard swimmer if same id, same normalised name, DOB differs by exactly one field or is a day/month swap, and the pairing is unambiguous both ways; authoritative sync only. The Sheet's DOB wins; `findSwimmersRemovedBySync` excludes paired swimmers. Unpaired same-name/different-DOB pairs are reported as `lookalikes`.
+- SE matcher: `seIdentityDiff` / `seDobSwapped` / `seDisplayDate` (inside the pure block) put both values in the reason and set `match.dobMismatch`; `seApplyImport` records `summary.dobMismatches`; `forenamesSimilar` folds accents (NFD) for similarity only.
+
 ## Overview Tab
 
 Unchanged since v2.10 (Squad Composition, Hot Right Now = recent *improvements* via `computePbImprovements()`, The Bubble List via `buildSwimmerRows()` → `getCurrentPbMap()`). SE-imported PBs flow through these unchanged because "current PB" and "improvement" are always computed live from the full `pbs` array.
@@ -109,7 +133,7 @@ Unchanged since v2.10 (Squad Composition, Hot Right Now = recent *improvements* 
 - **All PB writes still pass through `sanitiseSwimmersData()`** (upload, sync, restore, and now SE import).
 - No third-party scripts were added (SheetJS rejected: known CVEs; patched build unreachable).
 - Unchanged: stored-XSS defences from v2.6, write-side `lsSet` checks, Apps Script token handling and its known limits (open issues #1/#2).
-- **Privacy:** the repository that serves `county_qt.json`/`regional_qt.json` is public. Test fixtures derived from real exports (`arty_rows.json`, `swimmers_pb__3__-_Copy.json`, the real sample `.xlsx`) contain a child's name, date of birth and SE #. Keep them out of the public repo; see known-bugs #16.
+- **Privacy:** the repository that serves `county_qt.json`/`regional_qt.json` is public. Test fixtures derived from annonymised exports (`john_rows.json`, `swimmers_pb__3__-_Copy.json`, the sample `.xlsx`) contain a made up child's name, date of birth and SE #.
 
 ---
 
@@ -119,7 +143,7 @@ Unchanged since v2.10 (Squad Composition, Hot Right Now = recent *improvements* 
 localStorage ─▶ SWIMMERS ─▶ renderOverview / renderTab (via getCurrentPbMap, computePbImprovements)
 
 Writers of SWIMMERS (all validated + write-checked):
-  startSync → [Remove confirm] → mergeSwimmers → mergePbs (se protect/suppress)
+  startSync → [key-collision stop] → [Remove confirm] → mergeSwimmers → pairDobCorrections + mergePbs (se protect/suppress, stale) → ensureUniqueIds
   applySwimmersUpload (merge) → mergeSwimmers → mergePbs
   applyBackupRestore → sanitiseSwimmersData
   saveSwimmer → resolvePbSourceOnSave
@@ -130,17 +154,44 @@ Writers of SWIMMERS (all validated + write-checked):
 
 ## Testing
 
-All dev-time, Node + jsdom; none ship with the dashboard. Run from a folder containing `index.html` and the fixtures.
+All dev-time, Node + jsdom; none ship with the dashboard. Run from a folder containing `index.html` and the fixtures. Paths are configurable: `INDEX_FILE`, `FIXTURE_DIR`, `SE_SAMPLE_DIR` (the folder holding the two Bob/Bib sample `.xlsx`; `GS_FILE` for the Apps Script test).
 
 | File | Checks | Covers |
 |---|---|---|
-| `test_overview.js` | 74 | Overview tab (needs `swimmers_pb.json`, `county_qt.json`, `regional_qt.json`) |
-| `probe_pbs_widening.js` | 57 | pbs widening, `mergePbEntry`, `mergePbs` (incl. v2.11 protect/suppress), source tagging |
-| `probe_se_import.js` | 171 | the wired wizard end to end (needs `se_sample_rows.json`, `arty_rows.json`, `swimmers_pb__3__-_Copy.json`) |
-| `test_se_import_core.js` | 65 | parser/matcher/reader extracted from `index.html`; needs the two real sample `.xlsx` at `/mnt/user-data/uploads/`, `python3` + `openpyxl` |
-| `test_se_matching_matrix.js` | 25 | every matching scenario A–Y pinned; `--table` regenerates the doc table |
-| `probe_se_field.js`, `test_se_field.js`, `probe_backup_restore.js` | — | earlier sessions' probes (not re-run in the v2.11 sweep; none touch changed code paths) |
+| `test_overview.js` | 74 | Overview tab |
+| `probe_pbs_widening.js` | 57 | pbs widening, `mergePbEntry`, `mergePbs` (3 checks changed on purpose in v2.12: same-day behaviour) |
+| `probe_se_import.js` | 171 | the wired SE wizard end to end |
+| `test_se_import_core.js` | 65 | parser/matcher/reader extracted from `index.html` |
+| `test_se_matching_matrix.js` | 25 | every matching scenario A–Y (T is "high" since v2.12); `--table` regenerates the doc table |
+| `probe_same_day.js` | 85 | same-day merge/SE/improvements, sync wiring, retry/timeout, orphaned swims, build note, skipped rows |
+| `test_apps_script_v224.js` | 78 | the Apps Script, incl. `buildPayload` against a fake Sheet (chunked reads, skipped rows, warnings) |
+| `probe_stage2.js` | 38 | shared name key, collision stop, matcher DOB/wording/accents, summary |
+| `probe_ids.js` | 20 | unique ids, repair on load, stale Manage Data status |
+| `probe_dobmatch.js` | 31 | DOB-aware matching, notes, Keep/Hide/Remove |
+| `probe_se_field.js`, `test_se_field.js`, `probe_backup_restore.js` | — | earlier sessions' probes (not re-run; `test_se_field.js` targets `apps_script_v2.2.3.gs`) |
 
-Conventions: extract pure logic from the shipped file by text markers rather than keeping a duplicate; the `.xlsx` reader is tested with zlib standing in for `DecompressionStream` (jsdom's Blob has no `.stream()`), so only that one primitive differs from the browser. **jsdom limits:** no layout, no `@media`, no native scroll/focus-loss behaviour — the inner-list scroll loss *was* reproducible (new elements default to 0) and is regression-tested; browser-only behaviour is confirmed by coach UAT. Test-harness gotcha: `showSeImportModal()` re-renders the modal body and replaces the file input, so tests must re-query `#seImportFileInput` each time.
+Conventions: extract pure logic from the shipped file by text markers; the Apps Script test strips only GAS-only functions and supplies `Utilities`/`SpreadsheetApp` stubs (create `Date` objects **inside** the vm sandbox: `instanceof Date` is false across realms); jsdom has no layout/`@media`/native scroll. Process rules: see `coach_dashboard_handover.md` Section 7 (tests first and shown red; reproduce bugs first; measure before optimising; visible build markers).
 
-Process rules that proved their worth: (1) re-run the existing suites against the baseline before editing; (2) verify the logo line's hash is unchanged (never retype the base64); (3) check every PB-reading/writing path against a swimmer with several entries for one event+course; (4) reproduce a reported bug before fixing it, and check the fix actually fails without the change.
+
+---
+
+## v2.12.8 - SE import safety
+- `seFindProbableDuplicateAdds`: skips an SE swim when any entry exists for its event+course+date; candidates exclude `source:"se"`; offers the closest-dated one.
+- `seComputeOutcomes`: a replace is only honoured when the merge result is a clean `add`.
+- `seApplyImport`: per-swimmer counters, safety check (`length === before + added + conflictsBoth`) before writing; `conflictsBoth` bucket; `resultsBefore/After`.
+- `resolvePbEntryConflict`: `incoming` records `replaced`; new `both` adds the SE swim.
+- `mergePbs` returns `seOverridden`; `mergeSwimmers` -> `sePbsOverridden`.
+- Helpers: `countAllResults`, `describeResultsChange`, `findSameTimeRepeats`.
+- Tests: `probe_v2128.js` (30 checks, 674 total across all suites).
+
+
+## v2.12.9
+`seFindProbableDuplicateAdds` returns `{ entry, existingMatch, candidates }` (closest first). Dup choices: `skip | replace | pick:N | all | separate`. `seComputeOutcomes` yields `replacedList` (entries to remove; only honoured when the merge is a clean add). `seApplyImport` allows `duplicatesMerged` removals in its safety check. Tests: `probe_v2129.js` (17; 691 in total).
+
+
+## v2.12.10
+`seConflictOthers(pbs, entry, existingEntry)` finds removable repeats (non-SE, same time, other date). Conflict decisions: `keep | incoming | both | incomingx`. `resolvePbEntryConflict(..., others)` handles `incomingx` (records `removed`, filters the others out). `seApplyImport` tracks `othersRemoved` in the safety check. `mergePbs` treats `removed` like `replaced`. Tests: `probe_v21210.js` (27; 718 in total).
+
+
+## v2.12.11
+Review rows use `.se-row-name` / `.se-row-buttons` (+ `.fbtn` nowrap) and `.se-note-warn` (amber). The conflict note is computed in one place: faster than the best on file, or slower (with the "would make your best slower" sentence only when the conflicting on-file swim is the best). Tests: `probe_v21211.js` (15; 733 in total).

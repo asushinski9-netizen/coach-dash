@@ -11,21 +11,21 @@
 // row below fail ON PURPOSE; update the expectation, regenerate the table, and the change is then a
 // visible, reviewed decision instead of a silent behaviour shift.
 const fs = require('fs'), path = require('path'), vm = require('vm');
-const html = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
+const html = fs.readFileSync(path.join(__dirname, process.env.INDEX_FILE || 'index.html'), 'utf8');
 const between = (a, b) => { const s = html.indexOf(a); return html.slice(s, html.indexOf(b, s)); };
 function fn(name) { const m = new RegExp('function ' + name + '\\([^)]*\\)\\s*\\{').exec(html); let i = m.index + m[0].length, d = 1; while (d) { if (html[i] === '{') d++; else if (html[i] === '}') d--; i++; } return html.slice(m.index, i); }
 const src = fn('timeToSec') + '\n' + between('// SE PB REPORT IMPORT — parser + matcher (v2.11)', '// SE PB REPORT IMPORT — UI orchestration (v2.11)') + '\nthis.api={matchSeSwimmer,matchAllSeSwimmers};';
 const sb = { ALL_EVENTS: ['50 Free'], console, TextDecoder, Uint8Array, DataView }; vm.createContext(sb); vm.runInContext(src, sb);
 const { matchSeSwimmer, matchAllSeSwimmers } = sb.api;
 
-// The SE report says: "Sushinski, Artyom: 12/10/2014 (Boy 11) 1745801"
-const SE = (forename, se = '1745801') => ({ forename, surname: 'Sushinski', fullName: `${forename} Sushinski`, dob: '2014-10-12', gender: 'Boys', se });
-const R = (name, o = {}) => ({ name, dob: '2014-10-12', gender: 'Boys', ...o });
-const SAME = '1745801';
+// The SE report says: "Sushinski, Artyom: 22/09/2014 (Boy 11) 9990999"
+const SE = (forename, se = '9990999') => ({ forename, surname: 'Sushinski', fullName: `${forename} Sushinski`, dob: '2014-09-22', gender: 'Boys', se });
+const R = (name, o = {}) => ({ name, dob: '2014-09-22', gender: 'Boys', ...o });
+const SAME = '9990999';
 const scenarios = [
   ['A', 'SE # matches; DOB and gender match; first name differs (Arty on dashboard, Artyom on SE)', SE('Artyom'), [R('Arty Sushinski', { se: SAME })], 'auto', 'matched-se'],
   ['B', 'SE # matches; DOB and gender match; name identical', SE('Artyom'), [R('Artyom Sushinski', { se: SAME })], 'auto', 'matched-se'],
-  ['C', 'SE # matches and name matches, but date of birth differs', SE('Artyom'), [R('Artyom Sushinski', { se: SAME, dob: '2014-12-10' })], 'suggested', 'confirm low'],
+  ['C', 'SE # matches and name matches, but date of birth differs', SE('Artyom'), [R('Artyom Sushinski', { se: SAME, dob: '2014-22-09' })], 'suggested', 'confirm low'],
   ['D', 'SE # matches, but gender differs', SE('Artyom'), [R('Artyom Sushinski', { se: SAME, gender: 'Girls' })], 'suggested', 'confirm low'],
   ['E', 'No SE # on dashboard; first name similar (Arty / Artyom); DOB and gender match', SE('Artyom'), [R('Arty Sushinski')], 'suggested', 'confirm high'],
   ['F', 'No SE # on dashboard; name identical; DOB matches', SE('Artyom'), [R('Artyom Sushinski')], 'auto', 'matched-name'],
@@ -33,8 +33,8 @@ const scenarios = [
   ['H', 'Name and DOB match, but gender differs (no SE #)', SE('Artyom'), [R('Artyom Sushinski', { gender: 'Girls' })], 'suggested', 'confirm low'],
   ['I', 'Same surname, DOB and gender; unrelated first name (Robert); no SE #', SE('Artyom'), [R('Robert Sushinski')], 'suggested', 'confirm low'],
   ['J', 'As I, but the dashboard holds a different SE # and is the only candidate', SE('Artyom'), [R('Robert Sushinski', { se: '999' })], 'suggested', 'confirm low'],
-  ['K', 'Name identical but date of birth differs; no SE # link', SE('Artyom'), [R('Artyom Sushinski', { dob: '2014-12-10' })], 'skipped', 'unmatched'],
-  ['L', 'Similar name, DOB differs, dashboard holds a different SE #', SE('Artyom'), [R('Arty Sushinski', { dob: '2014-12-10', se: '999' })], 'skipped', 'unmatched'],
+  ['K', 'Name identical but date of birth differs; no SE # link', SE('Artyom'), [R('Artyom Sushinski', { dob: '2014-22-09' })], 'skipped', 'unmatched'],
+  ['L', 'Similar name, DOB differs, dashboard holds a different SE #', SE('Artyom'), [R('Arty Sushinski', { dob: '2014-22-09', se: '999' })], 'skipped', 'unmatched'],
   ['M', 'Similar name, DOB matches, gender differs (no SE #)', SE('Artyom'), [R('Arty Sushinski', { gender: 'Girls' })], 'skipped', 'unmatched'],
   ['N', 'Two dashboard swimmers hold the same SE #', SE('Artyom'), [R('Arty Sushinski', { se: SAME }), R('Artyom Sushinski', { se: SAME })], 'skipped', 'ambiguous'],
   ['O', 'Two dashboard swimmers with identical name and DOB (no SE #)', SE('Artyom'), [R('Artyom Sushinski'), R('artyom  sushinski')], 'skipped', 'ambiguous'],
@@ -42,7 +42,7 @@ const scenarios = [
   ['Q', 'Two candidates; BOTH have similar first names (Art / Arty)', SE('Artyom'), [R('Art Sushinski'), R('Arty Sushinski')], 'skipped', 'ambiguous'],
   ['R', 'Surname spelled differently (hyphenated on dashboard: Sushinski-Jones)', SE('Artyom'), [R('Arty Sushinski-Jones')], 'skipped', 'unmatched'],
   ['S', 'Name order swapped on dashboard ("Sushinski Arty")', SE('Artyom'), [R('Sushinski Arty')], 'skipped', 'unmatched'],
-  ['T', 'Accent difference in the first name (Artyóm vs Artyom)', SE('Artyom'), [R('Artyóm Sushinski')], 'suggested', 'confirm low'],
+  ['T', 'Accent difference in the first name (Artyóm vs Artyom)', SE('Artyom'), [R('Artyóm Sushinski')], 'suggested', 'confirm high'],
   ['U', 'Dashboard name has a middle name (Artyom Alex Sushinski)', SE('Artyom'), [R('Artyom Alex Sushinski')], 'suggested', 'confirm high'],
   ['V', 'SE report line has no SE #; name identical; DOB matches', SE('Artyom', undefined), [R('Artyom Sushinski')], 'auto', 'matched-name'],
   ['W', 'SE report line has no SE #; similar first name; DOB matches', SE('Artyom', undefined), [R('Arty Sushinski')], 'suggested', 'confirm high'],
@@ -63,6 +63,6 @@ const two = matchAllSeSwimmers([SE('Artyom', '1'), SE('Artyom', '2')], [R('Artyo
 const twoOk = two.every(x => x.match.status === 'ambiguous'); if (!twoOk) failures++;
 console.log(twoOk ? 'PASS -' : 'FAIL -', 'Y: two SE report swimmers that both resolve to the SAME dashboard swimmer -> both Skipped (ambiguous)');
 rows.push('| Y | Two swimmers in the SE report both resolve to the same dashboard swimmer | **Skipped (not applied)** | ambiguous (both) |');
-if (process.argv.includes('--table')) { console.log('\n| # | Scenario (SE report: Artyom Sushinski, 12 Oct 2014, SE # 1745801) | Result | Internal status |\n|---|---|---|---|'); rows.forEach(r => console.log(r)); }
+if (process.argv.includes('--table')) { console.log('\n| # | Scenario (SE report: Artyom Sushinski, 12 Oct 2014, SE # 9990999) | Result | Internal status |\n|---|---|---|---|'); rows.forEach(r => console.log(r)); }
 console.log('\n' + (failures === 0 ? 'ALL CHECKS PASSED' : failures + ' CHECK(S) FAILED'));
 process.exit(failures ? 1 : 0);

@@ -27,8 +27,8 @@ const fs = require('fs');
 const path = require('path');
 const { JSDOM } = require('jsdom');
 
-const html = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
-const sampleRows = JSON.parse(fs.readFileSync(path.join(__dirname, 'se_sample_rows.json'), 'utf8'));
+const html = fs.readFileSync(path.join(__dirname, process.env.INDEX_FILE || 'index.html'), 'utf8');
+const sampleRows = JSON.parse(fs.readFileSync(path.join(process.env.FIXTURE_DIR || __dirname, 'se_sample_rows.json'), 'utf8'));
 
 let failures = 0;
 function check(desc, cond) { if (cond) console.log('PASS -', desc); else { console.log('FAIL -', desc); failures++; } }
@@ -38,8 +38,8 @@ check('exactly one mergePbEntry() is defined (the import wiring does not reimple
   (html.match(/function mergePbEntry\(/g) || []).length === 1);
 check('exactly one resolvePbEntryConflict() is defined', (html.match(/function resolvePbEntryConflict\(/g) || []).length === 1);
 check('seApplyImport() calls mergePbEntry(), not a hand-rolled comparison', /function seApplyImport[\s\S]{0,3000}mergePbEntry\(/.test(html));
-check('seApplyImport() calls resolvePbEntryConflict() for conflicts', /function seApplyImport[\s\S]{0,3000}resolvePbEntryConflict\(/.test(html));
-check('seApplyImport() runs every write through sanitiseSwimmersData()', /function seApplyImport[\s\S]{0,3600}sanitiseSwimmersData\(/.test(html));
+check('seApplyImport() calls resolvePbEntryConflict() for conflicts', /function seApplyImport[\s\S]{0,6000}resolvePbEntryConflict\(/.test(html));
+check('seApplyImport() runs every write through sanitiseSwimmersData()', /function seApplyImport[\s\S]{0,6000}sanitiseSwimmersData\(/.test(html));
 check('seApplyImport() never sets squad on the swimmer it writes back', !/function seApplyImport[\s\S]{0,2600}\.squad\s*=/.test(html.slice(html.indexOf('function seApplyImport'), html.indexOf('function seApplyImport') + 2600)));
 check('the SE import card sits before #dataModalStatusDock (v2.7 last-child rule preserved)',
   html.indexOf('SE PB Report Import') < html.indexOf('id="dataModalStatusDock"') && html.indexOf('id="dataModalStatusDock"') < html.lastIndexOf('</div>\n  </div>\n</div>\n\n\n<div class="modal-overlay" id="addSwimmerModal"'.split('\n')[0]) || html.indexOf('SE PB Report Import') < html.indexOf('id="dataModalStatusDock"'));
@@ -254,7 +254,7 @@ setTimeout(async () => {
 
   // ── Confirm-tier suggestions now say plainly what ticking does ─────────────────────────
   check('the suggested-matches section explains that ticking only imports PB times, never name/DOB/gender/SE #',
-    /Ticking a box imports PB times[\s\S]{0,300}never changes their Name, Date of Birth, Gender, or SE #/.test(html));
+    /Ticking a box imports PB times[\s\S]{0,300}never changes their Name, Date of Birth or Gender[\s\S]{0,120}no SE # on the dashboard yet/.test(html));
 
   // ── Disabled Apply Import button actually looks disabled (not blue/clickable) ──────────
   check('a .btn:disabled CSS rule exists and visibly de-emphasises it (not just the native browser default)',
@@ -433,8 +433,8 @@ setTimeout(async () => {
   // (duplicates resolved as replace/separate ARE real adds, but the old one-time preview always
   // excluded every duplicate regardless of the choice made). These checks reproduce that exact
   // scenario from the real files and assert review and apply now always agree.
-  const artyRows = JSON.parse(fs.readFileSync(path.join(__dirname, 'arty_rows.json'), 'utf8'));
-  const artyRoster = JSON.parse(fs.readFileSync(path.join(__dirname, 'swimmers_pb__3__-_Copy.json'), 'utf8'));
+  const artyRows = JSON.parse(fs.readFileSync(path.join(process.env.FIXTURE_DIR || __dirname, 'arty_rows.json'), 'utf8'));
+  const artyRoster = JSON.parse(fs.readFileSync(path.join(process.env.FIXTURE_DIR || __dirname, 'swimmers_pb__3__-_Copy.json'), 'utf8'));
   window.readXlsxRows = async (buf) => {
     const text = new TextDecoder().decode(buf);
     return { sheetName: 'Top Times(0)', rows: text.startsWith('__SC__') ? artyRows.sc : artyRows.lc };
@@ -522,7 +522,7 @@ setTimeout(async () => {
   check('"Skip all" returns to just the 2 clean adds and no updates', reviewAddCount() === 2 && reviewUpdateCount() === 0);
   const dupHtml = doc.getElementById('seImportBody').innerHTML;
   check('the three bulk buttons are rendered next to the swimmer\'s name in the duplicates section',
-    /Skip all/.test(dupHtml) && /Replace all/.test(dupHtml) && /Import all separately/.test(dupHtml));
+    /Skip for all/.test(dupHtml) && /Replace for all/.test(dupHtml) && /Import separately for all/.test(dupHtml));
   window.hideSeImportModal();
 
   // Scroll: jsdom cannot reproduce a real browser's focus-loss scroll correction, so (as with

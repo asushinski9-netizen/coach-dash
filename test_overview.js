@@ -2,10 +2,10 @@ const fs = require('fs');
 const path = require('path');
 const { JSDOM } = require('jsdom');
 
-const html = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
-const swimmers = fs.readFileSync(path.join(__dirname, 'swimmers_pb.json'), 'utf8');
-const countyQt = fs.readFileSync(path.join(__dirname, 'county_qt.json'), 'utf8');
-const regionalQt = fs.readFileSync(path.join(__dirname, 'regional_qt.json'), 'utf8');
+const html = fs.readFileSync(path.join(__dirname, process.env.INDEX_FILE || 'index.html'), 'utf8');
+const swimmers = fs.readFileSync(path.join(process.env.FIXTURE_DIR || __dirname, 'swimmers_pb.json'), 'utf8');
+const countyQt = fs.readFileSync(path.join(process.env.FIXTURE_DIR || __dirname, 'county_qt.json'), 'utf8');
+const regionalQt = fs.readFileSync(path.join(process.env.FIXTURE_DIR || __dirname, 'regional_qt.json'), 'utf8');
 
 let dom;
 let failures = 0;
