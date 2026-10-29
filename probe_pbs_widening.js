@@ -22,10 +22,10 @@ const fs = require('fs');
 const path = require('path');
 const { JSDOM } = require('jsdom');
 
-const html = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
-const swimmers = fs.readFileSync(path.join(__dirname, 'swimmers_pb.json'), 'utf8');
-const countyQt = fs.readFileSync(path.join(__dirname, 'county_qt.json'), 'utf8');
-const regionalQt = fs.readFileSync(path.join(__dirname, 'regional_qt.json'), 'utf8');
+const html = fs.readFileSync(path.join(__dirname, process.env.INDEX_FILE || 'index.html'), 'utf8');
+const swimmers = fs.readFileSync(path.join(process.env.FIXTURE_DIR || __dirname, 'swimmers_pb.json'), 'utf8');
+const countyQt = fs.readFileSync(path.join(process.env.FIXTURE_DIR || __dirname, 'county_qt.json'), 'utf8');
+const regionalQt = fs.readFileSync(path.join(process.env.FIXTURE_DIR || __dirname, 'regional_qt.json'), 'utf8');
 
 let failures = 0;
 function check(desc, cond) {
@@ -245,12 +245,14 @@ setTimeout(() => {
   const sameDateExisting = [{ event: '100 Back', course: 'S', time: '80.00', date: '2026-03-01' }];
   const sameDateIncomingSlower = [{ event: '100 Back', course: 'S', time: '81.00', date: '2026-03-01' }];
   const sameDateResultSlower = window.mergePbs(sameDateExisting, sameDateIncomingSlower).pbs;
-  check('mergePbs() same-date collision: a SLOWER incoming time for the exact same date does not overwrite the faster existing one',
-    sameDateResultSlower.length === 1 && sameDateResultSlower[0].time === '80.00');
+  // v2.12 (deliberate change): a heat and a final on the same day are two swims, so a different time on
+  // the same date is ADDED beside the existing one rather than discarded/overwritten. See probe_same_day.js.
+  check('mergePbs() same-date, different time (v2.12): a SLOWER incoming swim is added beside the existing one, which is untouched',
+    sameDateResultSlower.length === 2 && sameDateResultSlower.some(p => p.time === '80.00') && sameDateResultSlower.some(p => p.time === '81.00'));
   const sameDateIncomingFaster = [{ event: '100 Back', course: 'S', time: '79.00', date: '2026-03-01' }];
   const sameDateResultFaster = window.mergePbs(sameDateExisting, sameDateIncomingFaster).pbs;
-  check('mergePbs() same-date collision: a FASTER incoming time for the exact same date DOES overwrite',
-    sameDateResultFaster.length === 1 && sameDateResultFaster[0].time === '79.00');
+  check('mergePbs() same-date, different time (v2.12): a FASTER incoming swim is also added beside the existing one (no longer overwrites it)',
+    sameDateResultFaster.length === 2 && sameDateResultFaster.some(p => p.time === '79.00') && sameDateResultFaster.some(p => p.time === '80.00'));
 
   // ────────────────────────────────────────────────────────────────
   // PART F (v2.11) — SE-confirmed PBs are protected from mergePbs()'s "faster wins" rule
@@ -268,8 +270,10 @@ setTimeout(() => {
   const seProtectedVsSlower = [{ event: '100 Back', course: 'S', time: '80.00', date: '2026-04-02', source: 'se' }];
   const slowerSheetEntry = [{ event: '100 Back', course: 'S', time: '85.00', date: '2026-04-02' }];
   const protectedVsSlower = window.mergePbs(seProtectedVsSlower, slowerSheetEntry);
-  check('an SE-confirmed entry is equally protected against a SLOWER same-date sheet entry (not just a faster one - it is never auto-compared at all)',
-    protectedVsSlower.pbs[0].time === '80.00' && protectedVsSlower.seProtected === 1);
+  // v2.12 (deliberate change): the SE report lists the official BEST, so a slower Sheet swim on the same
+  // date is plausibly the heat. It is added (no warning); the SE entry itself is never touched.
+  check('an SE-confirmed entry is untouched by a SLOWER same-date sheet swim, which is added as a plausible heat with no warning (v2.12)',
+    protectedVsSlower.pbs.length === 2 && protectedVsSlower.pbs.find(p => p.source === 'se').time === '80.00' && protectedVsSlower.seProtected === 0);
 
   const seMatchingSheetEntry = [{ event: '200 Free', course: 'S', time: '2:30.00', date: '2026-04-03', source: 'se' }];
   const sameTimeSheetEntry = [{ event: '200 Free', course: 'S', time: '2:30.00', date: '2026-04-03' }];

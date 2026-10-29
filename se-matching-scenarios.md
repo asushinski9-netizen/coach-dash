@@ -24,7 +24,7 @@ Names are compared after `normaliseNameKey()` (Unicode NFKC, lower-case, whitesp
 1. **SE # tier** (only if the SE report line has an SE #). Look for dashboard swimmers holding that SE #.
    - More than one holds it -> **Skipped (ambiguous)**.
    - Exactly one, and its date of birth **and** gender match -> **Auto-matched** (the name is not compared; a difference is only flagged).
-   - Exactly one, but date of birth or gender differs -> **Suggested (needs review)**.
+   - Exactly one, but date of birth or gender differs -> **Suggested (needs review)**. The reason names both values (roster and SE report) and says when the day and month look swapped (v2.12).
    - None -> go to tier 2.
 2. **Name + date of birth tier.** Look for dashboard swimmers with the identical (normalised) full name **and** the same date of birth.
    - More than one -> **Skipped (ambiguous)**.
@@ -66,7 +66,7 @@ Convention: the SE report says **Artyom Sushinski, 12 Oct 2014, Boys, SE # 17458
 | Q | Two candidates; BOTH have similar first names (Art / Arty) | **Skipped (not applied)** | ambiguous |
 | R | Surname spelled differently (hyphenated on dashboard: Sushinski-Jones) | **Skipped (not applied)** | unmatched |
 | S | Name order swapped on dashboard ("Sushinski Arty") | **Skipped (not applied)** | unmatched |
-| T | Accent difference in the first name (Artyóm vs Artyom) | **Suggested match** | confirm (low) |
+| T | Accent difference in the first name (Artyóm vs Artyom) | **Suggested match** | confirm (high) |
 | U | Dashboard name has a middle name (Artyom Alex Sushinski) | **Suggested match** | confirm (high) |
 | V | SE report line has no SE #; name identical; DOB matches | **Auto-matched** | matched-name |
 | W | SE report line has no SE #; similar first name; DOB matches | **Suggested match** | confirm (high) |
@@ -79,7 +79,7 @@ Convention: the SE report says **Artyom Sushinski, 12 Oct 2014, Boys, SE # 17458
 
 - Imports the PB times from the SE report into that dashboard swimmer's record (new results, conflicts and probable duplicates are then handled exactly as for an auto-match).
 - **Never** changes the swimmer's name, date of birth, gender, squad or hidden state.
-- **Does** fill in the SE # from the SE report **if the dashboard swimmer has none** (a blank is filled; an existing SE # is never overwritten). The in-app text currently says the SE # is never changed, which is not true for a blank SE #. Logged as known-bugs #12 for v2.12.
+- **Does** fill in the SE # from the SE report **if the dashboard swimmer has none** (a blank is filled; an existing SE # is never overwritten). The in-app text now says so (known-bugs #12, fixed in v2.12).
 - Unticked = skipped; nothing is written.
 
 ---
@@ -100,6 +100,15 @@ These are facts about current behaviour, not decisions. Items marked **(decision
 10. **Name keys differ between features.** The SE import normalises names (NFKC/lower/collapse whitespace); the Google Sheets sync matches on lower-case + trim only (`swimmerSyncKey`). Known-bugs #10.
 
 ---
+
+## 4b. Status after v2.12
+
+Changed in v2.12 (all pinned by `test_se_matching_matrix.js` and `probe_stage2.js`):
+- **Item 2 (DOB mismatch):** the suggestion's reason now shows both dates of birth and flags a day/month swap; the import summary lists swimmers whose date of birth differs from the SE report. The dashboard's date of birth is still never changed.
+- **Item 5 (accents):** accents are folded when judging whether two first names look alike (Artyóm / Artyom is now "likely"); it is a suggestion only and never makes a name auto-match, because `normaliseNameKey` is deliberately unchanged.
+- **Item 10 (name keys):** the Google Sheets sync now uses the same `normaliseNameKey`; two swimmers that collapse to one key stop a sync (or an upload-merge) before anything is changed.
+- **Wording (#12):** fixed.
+Not changed (no demand yet): hyphenated surnames (R), reversed name order (S), "pick one" for two candidates (Q), excluding a single auto-match, the column C gender flag.
 
 ## 5. Regenerating / changing this
 

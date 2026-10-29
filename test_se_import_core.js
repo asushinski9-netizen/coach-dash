@@ -23,7 +23,7 @@ const fs = require('fs'), path = require('path'), zlib = require('zlib'), vm = r
 const { execFileSync } = require('child_process');
 const { JSDOM } = require('jsdom');
 
-const html = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
+const html = fs.readFileSync(path.join(__dirname, process.env.INDEX_FILE || 'index.html'), 'utf8');
 const ALL_EVENTS = ['50 Free','100 Free','200 Free','400 Free','800 Free','1500 Free','50 Back','100 Back','200 Back','50 Breast','100 Breast','200 Breast','50 Fly','100 Fly','200 Fly','100 IM','200 IM','400 IM'];
 
 function extractBetween(text, startMarker, endMarker) {
@@ -54,7 +54,7 @@ const A = sandbox.api;
 let failures = 0;
 const check = (d, c) => { console.log(c ? 'PASS -' : 'FAIL -', d); if (!c) failures++; };
 
-const UP = '/mnt/user-data/uploads/';
+const UP = process.env.SE_SAMPLE_DIR || '/mnt/user-data/uploads/';
 function groundTruthRows(file) {
   return JSON.parse(execFileSync('python3', ['-c', `
 import json, openpyxl

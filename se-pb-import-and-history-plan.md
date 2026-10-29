@@ -1,6 +1,6 @@
 # Coach Dashboard — SE PB Import & PB History — Plan (v3, after v2.11 shipped)
 
-**Status: v2.8, v2.9, v2.10 and v2.11 are SHIPPED and UAT-passed.** This supersedes the September 2026 (v2) version. The design in Sections 3–6 was implemented as locked; Section 2 now records what real exports taught us (two corrections to the original assumptions); Section 7 is the roadmap for what comes next (re-ordering confirmed by the coach). If picking this up fresh: read this whole document, then `se-matching-scenarios.md`, then `coach_dashboard_handover.md`.
+**Status: v2.8, v2.9, v2.10, v2.11 and v2.12 are SHIPPED and UAT-passed** (v2.12: see Section 7.0). This supersedes the September 2026 (v2) version. The design in Sections 3–6 was implemented as locked; Section 2 now records what real exports taught us (two corrections to the original assumptions); Section 7 is the roadmap for what comes next (re-ordering confirmed by the coach). If picking this up fresh: read this whole document, then `se-matching-scenarios.md`, then `coach_dashboard_handover.md`.
 
 ---
 
@@ -71,6 +71,9 @@ Replace-only, schema-agnostic by construction (snapshots `SWIMMERS` / `COUNTY_QT
 ---
 
 ## 7. Roadmap for v2.12 onward (re-ordering CONFIRMED by the coach)
+
+### 7.0 Status after v2.12 (SHIPPED)
+The Section 7.3 questions were settled with the coach: (1) a heat and a final on one day are routine, so same-day swims are kept as separate entries (identity includes the time) instead of collapsing to the faster; (2) all non-DQ rows are emitted; (3) the payload is ~66 KB for ~810 swims, well within limits, and the old shape is still readable; (4) Hot Right Now keeps improvements-only, one per event per day; (5) typos are surfaced (`warnings`: >15% faster than the established best in the last 60 days) rather than hidden, and yellow still excludes a row; (6) DQ stays excluded. Also delivered: matcher/wording fixes, shared name key, unique ids, DOB-aware matching. See `architecture.md` (v2.12) and `session-log.md`. The v2.13 / v2.14 phasing below is unchanged; the `pbs` rename (known-bugs #19) is proposed before v2.14. The original v2.12 design text below is kept for the record.
 
 ### 7.1 What UAT of v2.11 revealed
 
