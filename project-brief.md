@@ -43,7 +43,7 @@ Swimming club **coaches** — not swimmers or parents.
 | `user_test_script_v2.11.md` | Coach manual test script (UAT passed) |
 
 ## Current Version
-**v2.12** (dashboard v2.12.11; Apps Script 2.2.4 build b5) — every dated swim from the Sheet (heat + final kept as two swims), unusually-fast / skipped-row / orphaned-swim reports, a build check for the deployed script, sync retry and clear errors, a shared name key with a collision stop, guaranteed-unique swimmer ids, DOB-aware matching, SE-import DOB hints. 644 automated checks passing; coach UAT passed. See `session-log.md`.
+**v2.13** (dashboard v2.13.8; Apps Script 2.2.4 build b5): everything in v2.12 plus the 🏊 Roster tab (County-style swimmer cards with ALL swimming results, flags, sort, interactive pies and phone chips), accurate footer counts on County/Regional, and review-screen wording polish. 979 automated checks passing; coach UAT passed. See `session-log.md` and handover Section 11.
 
 ## Next Planned Work — read `coach_dashboard_handover.md` first
 - **v2.13 "Tabs"**: dedicated Swimmers tab (known-bugs #9) and a Data tab; candidates: filter footer counts (#20), a redesigned sync message (#23), System Settings / maintenance mode (#27), a merge-duplicates tool, acknowledging warnings (#14).

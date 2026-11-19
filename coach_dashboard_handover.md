@@ -1,6 +1,6 @@
-# Coach Dashboard - Handover Document (v2.12.11 shipped, UAT passed -> starting v2.13)
+# Coach Dashboard - Handover Document (v2.13.8 shipped, UAT passed -> next: remaining v2.13 items)
 
-**Files:** `index.html` (title **v2.12.11**) and `apps_script_v2.2.4.gs` (**build 2.2.4-b5**, unchanged since v2.12.8). Built, tested (**733 automated checks, 0 failures**) and signed off by the coach: every step of the cumulative script `user_test_script_v2.12.8-to-v2.12.11.md` passed. **Nothing from v2.13 has been started.**
+**Files:** `index.html` (title **v2.13.8**) and `apps_script_v2.2.4.gs` (**build 2.2.4-b5**, unchanged since v2.12.8). **979 automated checks, 0 failures.** Coach UAT passed every step for v2.13.1 to v2.13.8 (v2.13.6 was replaced by v2.13.7 before UAT). Not yet pushed to GitHub: see Section 11.
 
 ---
 
@@ -106,21 +106,11 @@ Added by v2.12.8 to v2.12.11:
 ```
 git clone https://github.com/asushinski9-netizen/coach-dash.git work && cd work
 npm install                 # package.json lists jsdom
-# test_se_import_core.js needs two sample .xlsx (not in the repo); rebuild them from se_sample_rows.json:
-python3 - <<'XLEND'
-import json, openpyxl, os
-os.makedirs('/tmp/xl', exist_ok=True); d = json.load(open('se_sample_rows.json'))
-for k, n in (('sc', 'SHORT'), ('lc', 'LONG')):
-    wb = openpyxl.Workbook(); ws = wb.active; ws.title = 'Top Times(0)'
-    [ws.append(r) for r in d[k]]
-    wb.save(f'/tmp/xl/ALL_COMPETITIVE_{n}_COURSE_-_Copy.xlsx')
-XLEND
-export SE_SAMPLE_DIR=/tmp/xl/      # also INDEX_FILE, FIXTURE_DIR
-for f in test_overview.js probe_pbs_widening.js probe_se_import.js test_se_import_core.js test_se_matching_matrix.js \
-         probe_same_day.js test_apps_script_v224.js probe_stage2.js probe_ids.js probe_dobmatch.js \
-         probe_v2128.js probe_v2129.js probe_v21210.js probe_v21211.js; do node $f | grep -E "FAIL|ALL CHECKS"; done
+python3 make_sample_xlsx.py /tmp/xl      # builds the two sample .xlsx that test_se_import_core.js reads
+export SE_SAMPLE_DIR=/tmp/xl/            # also INDEX_FILE, FIXTURE_DIR
+./run_all_tests.sh                       # runs every suite, prints per-suite and TOTAL counts
 ```
-**Baseline to reproduce before any edit:** 74 + 57 + 171 + 65 + 25 + 85 + 78 + 38 + 20 + 31 + 30 + 17 + 27 + 15 = **733 checks, 0 failures.** The fixtures `se_sample_rows.json`, `john_rows.json` and `swimmers_pb__3__-_Copy.json` are needed by the SE probes (see the privacy note in Section 8).
+**Baseline to reproduce before any edit:** 979 checks, 0 failures (`./run_all_tests.sh` totals them; about 5 minutes: run it as two parallel batches inside ONE call, or per-suite, because commands are capped at ~300 s and background jobs die when the call ends). Fixtures are synthetic since v2.13 (`make_sample_xlsx.py` builds the sample xlsx).
 
 **Logo integrity (mandatory):** `grep "^const LOGO_DATA_URI" index.html | sha256sum` must print `501b76d31b1c5e3d49aaabb39dd4e4ae752d5fb0915a27e49a4ccf72b35b142f`. Record it before editing and re-check before every hand-back. Never retype the base64; edit in place with exact-match replacements (patch scripts assert each old string occurs exactly once).
 
@@ -140,7 +130,7 @@ for f in test_overview.js probe_pbs_widening.js probe_se_import.js test_se_impor
 | `package.json` (+ lock), `.gitignore` | | jsdom dependency; ignores `node_modules/` |
 | `probe_se_field.js`, `test_se_field.js`, `probe_backup_restore.js` | earlier | not re-run (stale or untouched code paths) |
 
-**Privacy note :** `john_rows.json` and `swimmers_pb__3__-_Copy.json` contain the name "John Smith" with a date of birth and SE number; an earlier handover called them anonymised, this is now verified. Also already tracked in the repo: `my_swims.json` and `SwimEngland.xlsx` is annonymised swim data. The repo serving the QT JSON is **public**.
+**Privacy note (v2.13):** all test fixtures are now synthetic (Nic/Nicholas Marlowe, SE # 7000001, a made-up DOB; Bob Baker / Bib Bremer). `john_rows.json` was removed and the Arty fixtures renamed to `nic_rows.json` / `nic_roster.json`. Git history of the public repo still contains the earlier fixtures and the old names in tests/docs: see known-bugs #16. `my_swims.json` and `SwimEngland.xlsx` hold real-looking swim data (names pseudonymised) and are still tracked.
 
 ---
 
@@ -156,3 +146,29 @@ for f in test_overview.js probe_pbs_widening.js probe_se_import.js test_se_impor
 
 ## 10. Suggested opening prompt for the next session
 "Continuing the Coach Dashboard. Read `coach_dashboard_handover.md`, then `known-bugs-and-fixes.md` (open items) and `architecture.md`. v2.12.11 is shipped and signed off. Scope this session: v2.13 'Tabs', starting with the three coach-requested review-screen items in handover Section 5 (#29, #30, #28). Rebuild the workspace, reproduce the 733-check baseline, record the logo hash, then raise the remaining Section 5 questions with your recommendations before writing any code, and write tests first."
+
+
+---
+
+## 11. State at the end of the v2.13 session (read this first)
+
+**Shipped and signed off (v2.13.1 to v2.13.8):** wording and polish in the SE review (#28/#29/#30: "swimming results", "in the dashboard", "the swimmer's"; stacked bold-named duplicate radios; speed emoji); County/Regional footer counts that account for every swimmer, with a heading naming the active filters and rows showing what the swimmer IS (#20); the 🏊 **Roster** tab (County-style collapsed cards, profile strip, ALL results, flag pills, Sort, Show Former / Show hidden, no Add button); **interactive pies** (desktop) and **five chips** (phone) driven by one selection model with the Gender/Age/Squad dropdowns ("Custom" for mixes); synthetic test fixtures (#16 mostly, #17).
+
+**Getting it onto GitHub (nothing was pushed from the sandbox).** `v2.13-complete-since-v2.12.11.patch` is ONE diff from the v2.12.11 repo state to v2.13.8: `git apply --index` it on a clean checkout of v2.12.11, then commit and push (or copy the delivered `index.html` and the new/changed files). Remember the privacy note: the public repo's history still contains the old fixtures with a child's real name/DOB/SE # (#16): decide whether to rewrite history.
+
+**Remaining v2.13 backlog, in suggested order (one release each, tests first, UAT between):**
+1. **Data tab + sync message redesign (#23)** - a one-line summary plus a collapsible section per note type (skipped rows as a table by record number, unusually fast swims, orphaned swims, SE-confirmed notes ...), built from DOM nodes; the probes that read `#syncStatus.textContent` and assert no element children need rewriting to "no injected markup". *Ask the coach which notes annoy them most first.*
+2. **Acknowledge warnings (#14)** - a stored fingerprint per handled note (swimmer + event + time + date) so it stops repeating; decide whether it goes in the backup bundle and how to un-acknowledge. Fits naturally inside #23's collapsible sections. *Coach said include it.*
+3. **Merge-duplicates tool** - a per-swimmer actions menu on the Roster (also the home for Hide/Show). Must reuse the SE import's "nothing lost" per-swimmer safety check (results after = results before + explicit removals), and be tested with multi-entry swimmers.
+4. **Season toggle + Specialty graph (#33) - NEEDS COACH DECISIONS before any code:** (a) when does a season start (1 Sep? the club's year?); does the toggle filter only the results table or also the best/Specialty; is "current" the season containing today? (b) Specialty radar (Free, Back, Breast, Fly, IM, sprint-to-distance colour scale, user-toggleable): what is plotted (share of results, best times against QT / age-group standards, relative strength), which results feed it, where it sits in the card. The reference image is a five-axis filled radar with a Sprint (red) to Distance (blue) legend.
+
+**Out of scope / later:** System Settings and a maintenance mode (#27), Apps Script speed via the Sheets Advanced Service, rename `pbs` to `results` (#19: a schema change, its own session before Progression v2.14), the Progression view (v2.14), mobile sorting is now available (Sort dropdown) so that old limitation is gone.
+
+**Lessons from this session (process):**
+- **Commit after every working step.** A sandbox reset lost an uncommitted release and cost several turns to rebuild from the repo + patches + exported files.
+- **Tests cannot see layout.** Three coach-found defects were visual or wording ones my tests passed (an unclosed `<div>` that jsdom silently repaired; a footer line that read as a fact about the swimmer; "on file" / "your" wording). Every change to rendered HTML gets a balanced-tags / sibling-structure check, and wording is read aloud as a sentence before it ships.
+- **Beware blunt search-and-replace** (it once rewrote a GitHub username inside the QT sync URLs; caught by diffing).
+- **Don't re-run the whole suite after every tweak:** run the affected suites, and the full set once per release.
+
+## 12. Suggested opening prompt for the next session
+"Continuing the Coach Dashboard. Read `coach_dashboard_handover.md` (especially Section 11), then `known-bugs-and-fixes.md` and `architecture.md`. v2.13.8 is shipped and signed off (979 checks). Rebuild the workspace (clone the repo, apply `v2.13-complete-since-v2.12.11.patch` if it is not already pushed), run `./run_all_tests.sh` in batches to reproduce the baseline, record the logo hash, and commit after every step. Scope this session: [pick: Data tab + sync message redesign (#23) with acknowledge warnings (#14) / merge-duplicates tool / the #33 decisions]. Raise questions with recommendations before writing code, then tests first."

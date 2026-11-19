@@ -56,11 +56,11 @@ Rule 2 of the SE protection (`seSuppressed`) keeps replaced made-up-date rows fr
 ### 15. (NEW) Some UI behaviour cannot be verified in the test environment
 jsdom has no layout, `@media`, native scroll or focus-loss handling. The inner-list scroll reset *was* reproducible there (new elements start at 0) and is regression-tested, but earlier attempts "passed" jsdom and still failed in a real browser. Rule: for any UI change that depends on browser behaviour, say plainly that it is unverified until the coach tests it, and add a coach test step.
 
-### 16. (NEW) Dummy personal data in test fixtures and a UI placeholder
-The John fixtures (`john_rows.json`, `swimmers_pb__3__-_Copy.json`, the sample `.xlsx`) and the new tests contain a made up child's name, date of birth and SE #. The repo serving `county_qt.json`/`regional_qt.json` is public on GitHub. v2.12: replaced with synthetic data and a synthetic placeholder (and check git history of anything already committed and flag).
+### 16. (MOSTLY FIXED in v2.13) Personal data in test fixtures and a UI placeholder
+Test fixtures, tests, the SE # placeholder and docs now use a fully synthetic child (Nic / Nicholas Marlowe, SE # 7000001, made-up DOB) plus the Bob Baker / Bib Bremer samples; `john_rows.json` removed. **Still open:** the public repo's git history holds the earlier fixtures and names (rewrite history or accept), and `my_swims.json` / `SwimEngland.xlsx` remain tracked. The repo owner's GitHub username (in the QT sync URLs) is unchanged.
 
-### 17. (NEW) Test tooling assumptions
-`test_se_import_core.js` hard-codes `/mnt/user-data/uploads/` for the real sample `.xlsx` and needs `python3` + `openpyxl`; the probes read fixtures from their own folder. A fresh workspace needs `npm install jsdom`. v2.12: make paths configurable / check fixtures in under a `fixtures/` folder (anonymised).
+### 17. (FIXED in v2.13) Test tooling assumptions
+`make_sample_xlsx.py` builds the sample `.xlsx` from `se_sample_rows.json`; `run_all_tests.sh` runs every suite and prints the TOTAL (733 at v2.12.11). Needs `npm install`, `python3` + `openpyxl`. Fixtures were also found to have drifted from the tests (anonymised DOBs); now consistent.
 
 ### 18. (NEW, by design) SE import limits
 `.xlsx` only (no legacy `.xls`); 5 MB file / 20,000 rows caps; SE report is current-best-only so it cannot backfill history (stated in the UI).
@@ -68,8 +68,8 @@ The John fixtures (`john_rows.json`, `swimmers_pb__3__-_Copy.json`, the sample `
 ### 19. (NEW, future) "pbs" is no longer an accurate name
 Since v2.10/v2.12 the `pbs` array holds every dated swim (heats, finals, non-PB swims), not just personal bests. The name is baked into the swimmer JSON, backup files, the Apps Script payload and several UI texts (e.g. the Google Sync Keep/Hide/Remove help text, "PB" columns). Raised by the coach in v2.12 UAT. Proposal: rename in the schema (e.g. `results`/`swims`) with a one-way migration on load and in `sanitiseSwimmersData()` (accept both names, write the new one), bump the backup `version`, and sweep UI wording (PB = "current best" only where that is what is meant). Do it as its own schema-version change, not mixed into another feature; natural fit just before the v2.14 Progression work.
 
-### 20. (NEW, future) County/Regional footer "not shown" counts ignore most filters
-`renderTab()` lists excluded swimmers only for hidden, Former Swimmer and the Status filter (swimmers with no rows after Status/Course/Stroke are diagnosed by `diagnoseZeroRowSwimmer`). Swimmers removed by the Gender, Age Group, Squad and name-search filters are dropped silently in `visibleSwimmers`, so "N swimmer(s) shown" and the "not shown (click for why)" text do not reflect them. Raised by the coach in v2.12 UAT. Fix idea: count and group them by the filter that removed them (reuse the existing details list). Natural fit for v2.13 "Tabs".
+### 20. (FIXED in v2.13.4) County/Regional footer "not shown" counts ignored most filters
+Swimmers removed by the Gender, Age Group, Squad and name-search filters used to vanish silently. One helper (`filterMisses`) now decides both who is shown and what the footer says; each swimmer is shown or listed exactly once (hidden, Former, removed by a filter, or the existing no-rows diagnosis), and a filter-removed swimmer is listed with the filter(s) that removed them. `probe_v2134.js` asserts shown + listed = roster for every filter combination on both tabs. **Reworded in v2.13.5** after coach UAT: the first wording ("John Smith - Gender (Girls)") read as a fact about the swimmer. Now the heading names the active filters once ("N not matching the active filters (Gender: Girls · Squad: Junior)") and each row shows what the swimmer IS for the filter(s) they failed ("John Smith - Boys", "Carl Beta - Boys, Senior", "Fay Eps - No squad", `name doesn't contain "zzz"`).
 
 ### 21. (FIXED in v2.12) Edited/deleted Sheet swims lingered on the dashboard silently
 Because the Sheet only ever added to the dashboard, a swim edited or deleted in the Sheet stayed behind. With full-history payloads (script v2.2.4+, payload 2.4) `mergePbs()` now reports Sheet-sourced swims the Sheet no longer lists (never auto-deleted; a hint says if the Sheet now has it under another date or time). Not reported for manual/SE entries, undated entries, older payloads, or manual file uploads.
@@ -90,14 +90,20 @@ The sync identifies a swimmer by normalised name + date of birth. If the DOB is 
 ### 27. (FUTURE) System Settings modal and a maintenance/diagnostics mode
 Raised by the coach in v2.12 UAT: one place for "under the bonnet" and look-and-feel options, including a maintenance mode controlling whether the Apps Script build / history-check suffix is shown in every sync status. Notes: extend the existing Settings (sync URL/token) rather than add a second modal; settings are per browser (localStorage) so decide whether they belong in the backup bundle (never the token). The "wrong script build" warning must stay visible regardless of the mode (it is a problem report, not routine diagnostics). Candidates: diagnostics on/off (build, history check, timing), show/hide County/Regional/editor tabs, colours/theme, logo (validated image stored as a data URI; the built-in logo's hash rule is unaffected), default Keep/Hide/Remove, default Hot Right Now days and Bubble margin, retry/timeout values, storage-size meter, backup reminder. Fits v2.13 alongside the Tabs/Data tab work.
 
-### 28. (NEW, future - coach request) "PB result(s)" wording in the SE review
+### 28. (FIXED in v2.13.1) "PB result(s)" wording in the SE review
+*Done: the SE review, summary, Manage Data card, sync/upload notes, the Keep/Hide/Remove help and the Remove confirmation now say "swimming results". Left deliberately: the Add/Edit Swimmer form ("Personal Bests", "Add PB entry"), tab/card titles and Hot Right Now, which move with the `pbs` rename (#19).*
 Now that every dated swim is stored, the UI should say "swimming results" where it means swims on file ("N new PB result(s) will be added" etc.). Update the tests that assert the old strings on purpose. Keep "PB" where it means a personal best. Related: #19 (the `pbs` field name).
 
-### 29. (NEW, future - coach request) Probable duplicates: same layout and wording as Time conflicts
+### 29. (FIXED in v2.13.1) Probable duplicates: same layout and wording as Time conflicts
+*Done: each radio on its own row with a bold name followed by what it does.*
 Each radio on its own row (stacked), the choice name in bold followed by what it does, consistent with the conflict rows and with the "<choice> for all" buttons. (v2.12.11 did this for Time conflicts only.)
 
-### 30. (NEW, future - coach request) Speed emoji on the conflict note
+### 30. (FIXED in v2.13.1) Speed emoji on the conflict note
+*Done: a lightning bolt after "faster" and a turtle after "slower" (aria-hidden).*
 A lightning bolt next to "faster" and a turtle next to "slower" in the orange time-difference note.
+
+### 31. (FIXED in v2.13.3) "on file" and "your" in the SE review were ambiguous
+Raised by the coach in v2.13.2 UAT: the review is opened from an SE file, so "on file" read as "in the file you imported", and "your best time" read as the coach's, not the swimmer's. Now "in the dashboard" / "dashboard ..." for existing data and "the swimmer's" for their times, across the review, apply note, summary, matcher reasons, the "Swimming results in the dashboard: before -> after" line (also in the sync message). Phrases that address the coach ("if you're confident", "your club's export") are unchanged. `probe_v213.js` scans every review/summary state for "on file" and swimmer-data "your".
 
 ### 22. (MITIGATED in v2.12) Intermittent "HTTP 404" on Sheets sync, slow to fail
 Reported in v2.11 and v2.12 UAT. Root cause not established (Google Apps Script web apps can be slow or briefly unavailable; the script itself ran fine in the editor). In v2.12 the script reads far fewer blank rows (3,174 of 3,999 in the coach's Sheet; payload build was ~13 s), and the dashboard retries 404/5xx/timeouts up to 3 times (90 s per attempt) and shows a plain-language message. Round 2/3 UAT: the Results step took 7.3 s then 11.3 s (10.6 s of it READING the Sheet; processing only 0.7 s), so the per-row timezone call was NOT the cause (it is cached anyway). Round 4 numbers showed the cost is ~1.7 ms PER ROW whatever the column count (scan 3,997 rows 7.3 s, values 830 rows 1.4 s, colours 830 rows 1.5 s; the very first build ~8,000 row-reads ~ 13 s), so the narrow-column read (b4) saved nothing and was reverted in b5. b5 finds the last data row by reading forward in 250-row chunks and stopping after 2 blank chunks (~1,500 rows read instead of ~5,700; modelled 10 s -> 4 s, unmeasured). Known limit: a gap of more than 500 consecutive blank rows in the middle of the Results tab hides the rows below it. Further option if needed: the Sheets Advanced Service. Also (round 3): the deployed web app was an older build than `testRun` showed (code pasted and deployed without saving, or a different deployment), which is why v2.12.2+ shows the Apps Script build in every sync message and v2.12.3 warns when it is not the expected one. 3 + 4 rows were skipped for an unknown event / unreadable time (now listed by `testRun` and in `stats.skippedRows`). **Unverified until the coach re-tests** (S2-S3, S6 in the v2.12 test script). No failures were seen in round 2.
@@ -145,7 +151,7 @@ Scope: the SE PB Report Import (plan Sections 2, 4, 5), plus the fixes below fou
 | 3 | UAT (twice) | Em-dashes in user-visible text | My sweep only covered the `<script>` block and missed the static Manage Data card | Fixed; sweep now covers static HTML and render code; house style: hyphens in UI text |
 | 4 | UAT | "can't backfill times … beaten in" unclear | Poor wording | Rewritten in plain language in both places |
 | 5 | UAT | Unmatched swimmer despite same surname/DOB/gender | Tier 3 *excluded* candidates holding a different SE # | Deprioritise instead; offer with the conflict named; matrix test |
-| 6 | UAT | Arty/Artyom auto-match invisible | Auto-matches showed no per-swimmer detail | Auto-matched detail box with name-difference note (test script 3.3 also corrected: an SE # match auto-matches, it is not a suggestion) |
+| 6 | UAT | Nic/Nicholas auto-match invisible | Auto-matches showed no per-swimmer detail | Auto-matched detail box with name-difference note (test script 3.3 also corrected: an SE # match auto-matches, it is not a suggestion) |
 | 7 | UAT | "What does the tick do?" | No explanation | Explanatory line (see #12 for its remaining inaccuracy) |
 | 8 | UAT | Disabled Apply still looked live | No `.btn:disabled` style anywhere | Added |
 | 9 | UAT | Review said 2 adds, apply did 4 | Preview computed once and always excluded duplicates; apply used separate logic | `seComputeOutcomes()` shared by preview and apply; all 27 duplicate-choice combinations tested for agreement |
@@ -218,3 +224,10 @@ The only ways an import can now reduce a swimmer's results are the two explicit 
 | 4 | Coach | No highlight when several same-time entries are on file | Orange note on duplicates; the conflict "also on file on" line is orange too |
 
 Layout behaviour on real screens is unverified until the coach tests it (see #15).
+
+
+### 32. (DONE in v2.13.8) Interactive charts on the Roster
+The three Squad Composition pies (gender, squad, age) at the top of the Roster on desktop; clicking a slice or legend entry removes that category from the list, and the filters and pies stay in step in both directions (a "Custom" state when a mix cannot be expressed by a dropdown). Counts follow the other active filters but not the pie's own selection. A collapsible chart strip (remembered). On phones: up to five toggle chips with counts (Boys, Girls, Junior, Senior, Development). The Overview pies must not change behaviour (`test_overview.js` is the safety net for refactoring the shared chart function). *As built:* one selection model (`rosterExcl`: categories struck out per dimension) drives the pies, the five phone chips and the Gender/Age/Squad dropdowns; `renderCompChart(..., cfg)` takes optional settings so Overview is untouched; the collapsed state of the strip is stored in `localStorage` key `coach_ROSTER_CHARTS_HIDDEN` (not in the backup bundle). `probe_v2138.js`.
+
+### 33. (PLANNED, needs decisions) Swimmer-level season toggle and Specialty graph
+Raised by the coach during v2.13.7 design. (a) A per-swimmer toggle for swimming-result seasons (current, 2025/26, 2024/25 ...). Open: when does a season start (1 Sep? the club's year?), does it filter only the results table or also the best/Specialty, and is "current" the season containing today? (b) A Specialty radar graph (Free, Back, Breast, Fly, IM, with a sprint-to-distance colour scale), toggleable by the user. Open: what is plotted (share of results, best times against QT / age-group standards, or relative strength), which results feed it (all, PBs only, current season), and where it sits in the card.
