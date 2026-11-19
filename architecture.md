@@ -133,7 +133,7 @@ Unchanged since v2.10 (Squad Composition, Hot Right Now = recent *improvements* 
 - **All PB writes still pass through `sanitiseSwimmersData()`** (upload, sync, restore, and now SE import).
 - No third-party scripts were added (SheetJS rejected: known CVEs; patched build unreachable).
 - Unchanged: stored-XSS defences from v2.6, write-side `lsSet` checks, Apps Script token handling and its known limits (open issues #1/#2).
-- **Privacy:** the repository that serves `county_qt.json`/`regional_qt.json` is public. Test fixtures derived from annonymised exports (`john_rows.json`, `swimmers_pb__3__-_Copy.json`, the sample `.xlsx`) contain a made up child's name, date of birth and SE #.
+- **Privacy:** the repository that serves `county_qt.json`/`regional_qt.json` is public. Test fixtures derived from annonymised exports (`nic_rows.json`, `nic_roster.json`, the sample `.xlsx`) contain a made up child's name, date of birth and SE #.
 
 ---
 
@@ -195,3 +195,9 @@ Conventions: extract pure logic from the shipped file by text markers; the Apps 
 
 ## v2.12.11
 Review rows use `.se-row-name` / `.se-row-buttons` (+ `.fbtn` nowrap) and `.se-note-warn` (amber). The conflict note is computed in one place: faster than the best on file, or slower (with the "would make your best slower" sentence only when the conflicting on-file swim is the best). Tests: `probe_v21211.js` (15; 733 in total).
+
+
+### Roster tab and its charts (v2.13.7 / v2.13.8) - restored after a sandbox reset
+- **Roster (v2.13.7):** `#tab-roster`; the same swimmer cards as County/Regional (`.swimmer-card`, `toggleSwimmer`, `toggleCollapseAll('roster')`, `collapseAllState.roster`), collapsed by default, with a profile strip and ALL swimming results when expanded. `getRosterModel()` returns `{rows, excluded, activeFilters, total, chart}`; precedence hidden > Former > filter-removed, so every swimmer is a card or listed once in the footer (the County footer, reused via `buildFooterNote(..., headline)`). Flags `noSE / noResults / possibleDup / hidden / former` appear as Outside / Consideration / neutral pills; Sort has 8 keys with per-key default direction (blanks last for SE # and Most recent result). Phone: Overview and Roster each take a tab row; Competition/Source columns hidden (`.rs-hide-mobile`). `renderOverview()` ends with a hook that refreshes an open Roster.
+- **Charts (v2.13.8):** one selection model, `rosterExcl = {gender, squad, age}` (sets of struck-out categories). `rosterDropdownValue(dim)` derives the dropdown ('' = all, a value = only that one, `'__custom'` = a mix); `reconcileRosterDropdowns()` treats a dropdown that no longer matches as the user's newer intent; chart/chip clicks go through `toggleRosterChartKey(dim, key)`, which syncs the dropdowns first. Pie and chip counts use every filter EXCEPT their own dimension (`model.chart.counts`). `renderCompChart(chartId, title, items, cfg)` takes optional `{excluded, toggleFn, arcClick}`; without `cfg` it is exactly Overview's. Phone: pies hidden, five chips (Boys, Girls, Junior, Senior, Development). `coach_ROSTER_CHARTS_HIDDEN` remembers the collapsed strip.
+- **Testing practice:** `run_all_tests.sh` now takes ~5 minutes, over the 300 s tool limit when polled badly; run suites in two parallel batches inside one call. **Commit after every working step** (a sandbox reset once lost an uncommitted release).
